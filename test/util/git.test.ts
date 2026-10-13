@@ -803,9 +803,38 @@ test(
       (err: unknown) => {
         assert.ok(err instanceof PushRejectedError, `expected PushRejectedError, got ${err}`);
         assert.match((err as Error).message, /something else pushed to it/);
-        assert.match((err as Error).message, /force-with-lease/);
+        // The full ref, so the printed command still works when a tag has the same name.
+        assert.match(
+          (err as Error).message,
+          /force-with-lease origin refs\/heads\/ticket:refs\/heads\/ticket/,
+        );
         return true;
       },
     );
   },
 );
+
+// `rev-parse --abbrev-ref` answered heads/<name> here, and ticket creation refused its own branch.
+test('currentBranch names the branch even when a tag has the same name', () => {
+  const repoRoot = makeGitRepo();
+  execFileSync('git', ['checkout', '-q', '-b', 'glafka/t1'], { cwd: repoRoot });
+  execFileSync('git', ['tag', 'glafka/t1'], { cwd: repoRoot });
+  assert.equal(currentBranch(repoRoot), 'glafka/t1');
+
+  execFileSync('git', ['checkout', '-q', '--detach'], { cwd: repoRoot });
+  assert.equal(currentBranch(repoRoot), 'HEAD', 'detached, as before');
+});
+
+// The last fallback is the current branch. `--abbrev-ref` named it heads/develop next to a tag.
+test('detectBaseRef names the current branch even when a tag has the same name', () => {
+  const repoRoot = makeGitRepo({ branch: 'develop' });
+  execFileSync('git', ['tag', 'develop'], { cwd: repoRoot });
+  assert.equal(detectBaseRef(repoRoot), 'develop');
+});
+
+// An empty repo has a branch name but no commit. That is still "no base".
+test('detectBaseRef is null for a repo with no commits', () => {
+  const repoRoot = makeTempDir('empty-repo');
+  execFileSync('git', ['init', '-q', '-b', 'develop'], { cwd: repoRoot });
+  assert.equal(detectBaseRef(repoRoot), null);
+});

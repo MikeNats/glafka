@@ -5,6 +5,8 @@ import {
   isCancelled,
   hasAporia,
   isReviewedSinceLastChange,
+  hasUnreviewedCommit,
+  UNREVIEWED_COMMIT,
   reviewRoundCount,
   liveReviewerRoles,
   setReviewerRoles,
@@ -323,6 +325,17 @@ async function step({
 
   // The coder ran and stopped, and is not stuck. Has it been reviewed? A reviewed ticket can
   // still have a QA round to close, or no reviewer since the QA round stopped the last review.
+  // A commit by hand after the review. A person starts that paid round, never vima.
+  if (hasUnreviewedCommit(ticket)) {
+    return notifyOnce({
+      stateDir,
+      id,
+      config,
+      ticket,
+      action: 'none',
+      reason: `${UNREVIEWED_COMMIT} — review it: glafka ergon ${id} --review — needs you`,
+    });
+  }
   const reviewed = isReviewedSinceLastChange(ticket);
   const qa = reviewed ? reviewedQa(stateDir, ticket) : null;
   if (!reviewed || qa?.kind === 'review') {

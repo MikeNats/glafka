@@ -26,6 +26,7 @@ function view(overrides: Partial<PoreiaView> = {}): PoreiaView {
     aporia: null,
     reviewRequested: true,
     reviewedAt: '2026-08-04T00:00:00.000Z',
+    unreviewedCommit: false,
     checksOutcome: 'ok',
     devRunning: null,
     review: {
@@ -148,4 +149,10 @@ test('logos is not called from vima or poreia', () => {
     const source = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
     assert.equal(/logos/.test(source), false, `${rel} must not reach for logos`);
   }
+});
+
+test('a commit after the review is stated under the verdict', () => {
+  const report = buildRawReport(view({ unreviewedCommit: true }));
+  assert.match(report, /verdict: clean/);
+  assert.match(report, /After this review: a commit no reviewer has read\./);
 });

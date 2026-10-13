@@ -16,6 +16,7 @@ import {
   consumeVerifyRound,
   activeCriteria,
   VERIFY_OUTCOME,
+  setReviewedTree,
 } from '../../ticket/ticketStore.js';
 import { assertNoLiveVerifier } from '../../ticket/liveVerifier.js';
 import { loadPromptContext } from '../../memory/context.js';
@@ -44,6 +45,7 @@ import {
   diffStat,
   changedFiles,
   uncommittedPaths,
+  headTree,
 } from '../../util/git.js';
 import { glafkaCli } from '../../util/cli.js';
 import { readProgress, OUTCOME_FOR_VERDICT } from './utils.js';
@@ -321,6 +323,8 @@ async function prepareReview({
   // A new round starts clean, with its own review token; a "clean" without it is not trusted.
   // A QA round does this where it really opens (dispatchVerifier, openManualRound).
   const reviewToken = gate.kind === 'start' ? '' : startCleanRound(stateDir, id);
+  // Only a review round drops the old tree. A QA round adds no review entry, so it keeps it.
+  if (gate.kind !== 'start') setReviewedTree(stateDir, id, null);
 
   // Computed before the checks run, not after: the npm fallback below would otherwise run package.json's own scripts on the host, unattended,
   const { policy } = resolvePolicy({ repoRoot });
@@ -432,6 +436,9 @@ async function prepareReview({
         `  or skip one (you): glafka epalitheusis ${id} --skip AC-<n> --reason "..."`,
     );
   }
+  // The exact code this reviewer reads. epistle refuses a push once HEAD moves past it. Saved
+  // before the review entry: a crash between the two then leaves "not reviewed", never "reviewed".
+  setReviewedTree(stateDir, id, headTree(ticket.worktree));
   recordReviewOnce(checksOutcome);
 
   const diff = branchDiff(ticket.worktree, baseRef);

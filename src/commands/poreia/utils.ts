@@ -4,6 +4,7 @@ import {
   lastRunOutcome,
   lastReviewOutcome,
   RUN_OUTCOMES,
+  UNREVIEWED_COMMIT,
 } from '../../ticket/ticketStore.js';
 import { VERDICT_SOURCE } from '../ergon/ergon.js';
 import type { Ticket } from '../../types/ticket.js';
@@ -48,6 +49,8 @@ export interface PoreiaView {
   aporia: { reason: string; at?: string } | null;
   reviewRequested: boolean;
   reviewedAt: string | null;
+  // Reviewed, then a commit by hand. epistle refuses it, so this view must not say "ready".
+  unreviewedCommit: boolean;
   checksOutcome: string | null;
   // Null when this project has no app to run.
   devRunning: boolean | null;
@@ -137,6 +140,10 @@ export function summaryFor(view: Partial<PoreiaView>): { rank: number; text: str
   if (view.closed) return { rank: 3, text: `${view.id}  closed` };
   if (view.aporia) {
     return { rank: 0, text: `${view.id}  ${SYMBOL.NEEDS_YOU} needs you  — ${view.aporia.reason}` };
+  }
+
+  if (view.unreviewedCommit) {
+    return { rank: 0, text: `${view.id}  ${SYMBOL.NEEDS_YOU} needs you  — ${UNREVIEWED_COMMIT}` };
   }
 
   if (view.reviewRequested) {

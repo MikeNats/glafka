@@ -94,11 +94,9 @@ export function detectBaseRef(repoRoot: string): string | null {
     if (refExists(repoRoot, candidate)) return candidate;
   }
   try {
-    const current = git(['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: repoRoot,
-      stdio: 'pipe',
-    }).trim();
-    if (current && current !== 'HEAD') return current;
+    // refExists: an empty repo has a branch name but no commit, and that is still null.
+    const current = currentBranch(repoRoot);
+    if (current !== 'HEAD' && refExists(repoRoot, current)) return current;
   } catch {
     // An empty repo with no commits. The caller decides what null means.
   }
@@ -325,6 +323,15 @@ Nothing above was truncated or dropped, so a file missing from the list really i
 a file this ticket did not touch.`;
 }
 
+// Every path that differs between `from` (a commit or a tree) and HEAD. `--no-renames`, so a moved
+// file still names the path it left. `-z`, so a non-ASCII name is not quoted.
+export function pathsChangedSince(worktreeDir: string, from: string): string[] {
+  const out = git(['diff', '--name-only', '--no-renames', '-z', from, 'HEAD'], {
+    cwd: worktreeDir,
+  });
+  return out.split('\0').filter(Boolean);
+}
+
 // The files a branch changed, compared to the base branch.
 export function changedFiles(worktreeDir: string, baseRef: string): string[] {
   const out = git(['diff', '--name-only', `${baseRef}...HEAD`], { cwd: worktreeDir });
@@ -366,8 +373,10 @@ export class PushRejectedError extends Error {
 const NON_FAST_FORWARD_RE = /non-fast-forward|fetch first|rejected/i;
 
 export function push(worktreeDir: string, branch: string): void {
+  // The full ref: a tag with the same short name makes `git push origin <branch>` refuse.
+  const ref = `refs/heads/${branch}`;
   try {
-    git(['push', '-u', 'origin', branch], { cwd: worktreeDir });
+    git(['push', '-u', 'origin', `${ref}:${ref}`], { cwd: worktreeDir });
   } catch (err) {
     const stderr = String((err as { stderr?: Buffer | string }).stderr ?? (err as Error).message);
     if (!NON_FAST_FORWARD_RE.test(stderr)) throw err;
@@ -378,7 +387,7 @@ export function push(worktreeDir: string, branch: string): void {
         `git -C ${worktreeDir} log --oneline HEAD..origin/${branch}\n` +
         `  if that work should be kept: merge or rebase it in yourself, then run epistle again\n` +
         `  if this rebase is the version to keep (the usual case after epistle already ran once): ` +
-        `git -C ${worktreeDir} push --force-with-lease origin ${branch}, then run epistle again`,
+        `git -C ${worktreeDir} push --force-with-lease origin ${ref}:${ref}, then run epistle again`,
     );
   }
 }
@@ -428,7 +437,7 @@ export function rebaseOnto(worktreeDir: string, baseRef: string): void {
 
 // Whether `ref` is already contained in this worktree's HEAD. Exit code IS the answer here, so a
 // non-zero exit is "no", not a failure to report.
-function isAncestor(worktreeDir: string, ref: string): boolean {
+export function isAncestor(worktreeDir: string, ref: string): boolean {
   try {
     git(['merge-base', '--is-ancestor', ref, 'HEAD'], { cwd: worktreeDir, stdio: 'pipe' });
     return true;
@@ -449,8 +458,22 @@ function conflictingFiles(worktreeDir: string): string[] {
   }
 }
 
+// The short branch name, or 'HEAD' when detached. Cut from the full ref: `rev-parse --abbrev-ref`
+// answers heads/<name> when a tag has the same name.
 export function currentBranch(repoRoot: string): string {
-  return git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoRoot }).trim();
+  const ref = headRef(repoRoot);
+  return ref === null ? 'HEAD' : ref.replace(/^refs\/heads\//, '');
+}
+
+// The full ref HEAD is on, like refs/heads/main, or null when detached.
+function headRef(worktreeDir: string): string | null {
+  try {
+    return git(['symbolic-ref', '-q', 'HEAD'], { cwd: worktreeDir }).trim();
+  } catch (err) {
+    // Exit 1 is git's answer for a detached HEAD. Anything else is a real failure.
+    if ((err as { status?: number }).status === 1) return null;
+    throw err;
+  }
 }
 
 // Finds the main checkout, even from inside a ticket's worktree.

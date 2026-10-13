@@ -135,6 +135,7 @@ export function writeTicket(stateDir: string, ticket: TicketDraft, lease?: Lease
     // Shown to the reviewer only, never the coder. This is how we tell
     // a real reviewer from a coder approving its own work.
     reviewToken: ticket.reviewToken ?? null,
+    reviewedTree: ticket.reviewedTree ?? null,
     aporia: ticket.aporia ?? null,
     notified: ticket.notified ?? false,
     // The guardrails level this ticket opened with. Null on old tickets.

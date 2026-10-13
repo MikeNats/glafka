@@ -8,6 +8,8 @@ import {
   isCancelled,
   describeTicket,
   hasOpenPr,
+  hasUnreviewedCommit,
+  UNREVIEWED_COMMIT,
 } from '../../ticket/ticketStore.js';
 import { backgroundStatus } from '../../ticket/background.js';
 import { ROLES } from '../../types/ticket.js';
@@ -82,6 +84,7 @@ export function poreia({
     aporia: ticket.aporia ?? null,
     reviewRequested: lastStageIndex(ticket, STAGES.REVIEW) !== -1,
     reviewedAt: lastStageAt(ticket, STAGES.REVIEW),
+    unreviewedCommit: hasUnreviewedCommit(ticket),
     checksOutcome: currentChecksOutcome(ticket),
     // Only read, never started. This is the command people run to look.
     devRunning: hasDevCmd(repoRoot) ? devServerAlive({ stateDir, id: ticket.id }) : null,
@@ -196,7 +199,13 @@ export function renderPoreia(view: Partial<PoreiaView>): string {
     // now — nothing but a recorded clean is ready for anybody.
     const clean =
       review.verdict.source === VERDICT_SOURCE.KRISIS && review.verdict.verdict === 'clean';
-    lines.push(`  ${clean ? SYMBOL.DONE : SYMBOL.PENDING} ready for you`);
+    if (view.unreviewedCommit) {
+      lines.push(
+        `  ${SYMBOL.NEEDS_YOU} ${UNREVIEWED_COMMIT} — review it: glafka ergon ${view.id} --review`,
+      );
+    } else {
+      lines.push(`  ${clean ? SYMBOL.DONE : SYMBOL.PENDING} ready for you`);
+    }
   } else {
     lines.push(`  ${SYMBOL.PENDING} review`);
     lines.push(`  ${SYMBOL.PENDING} ready for you`);

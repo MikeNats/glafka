@@ -299,6 +299,37 @@ test(
   },
 );
 
+// A commit by hand adds no ergon entry. vima must not pay for a review of it on its own.
+test(
+  'vima stops for a person when a commit lands by hand after a clean review',
+  { concurrency: true },
+  async () => {
+    const repoRoot = makeGitRepo();
+    const stateDir = stateDirFor(repoRoot);
+    const ticket = await genesis({ repoRoot, stateDir, content: 'task', planContent: '1. do it' });
+    const config = baseConfig({
+      agents: { coder: COMMITTING_CODER, reviewer: cleanReviewer(ticket.id) },
+    });
+    await vima({ stateDir, id: ticket.id, repoRoot, config });
+    await waitFor(
+      () => backgroundStatus({ stateDir, id: ticket.id, role: 'coder' }).state === 'finished',
+    );
+    await vima({ stateDir, id: ticket.id, repoRoot, config });
+    await waitFor(
+      () => backgroundStatus({ stateDir, id: ticket.id, role: 'reviewer' }).state === 'finished',
+    );
+    assert.equal((await vima({ stateDir, id: ticket.id, repoRoot, config })).action, 'ready');
+
+    fs.writeFileSync(path.join(ticket.worktree!, 'by-hand.txt'), 'x\n');
+    execFileSync('git', ['add', 'by-hand.txt'], { cwd: ticket.worktree! });
+    execFileSync('git', ['commit', '-q', '-m', 'by hand'], { cwd: ticket.worktree! });
+
+    const result = await vima({ stateDir, id: ticket.id, repoRoot, config });
+    assert.equal(result.action, 'none', 'no reviewer is spawned');
+    assert.match(result.reason!, /a commit no reviewer has read .* needs you/);
+  },
+);
+
 test(
   'vima reports green checks with no reviewer configured, rather than spawning nothing silently',
   { concurrency: true },

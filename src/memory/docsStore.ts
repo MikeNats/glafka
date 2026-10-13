@@ -18,6 +18,15 @@ function describeParseError(error: z.ZodError): string {
 // Where the docs live in git. Other files use this too.
 export const DOCS_ROOT = 'docs/glafka';
 
+// What the tidy-up writes: prose in the architecture map and the tickets. Not config like
+// isolation.json, and not the rules agents follow (ethos, skills) — those change what runs.
+export function isTidyDoc(file: string): boolean {
+  const inPlace = ['architecture', 'tickets'].some((dir) =>
+    file.startsWith(`${DOCS_ROOT}/${dir}/`),
+  );
+  return inPlace && file.endsWith('.md');
+}
+
 // One file per category.
 export function ethosPath(repoRoot: string, target: string): string {
   return path.join(repoRoot, DOCS_ROOT, 'ethos', `${target}.md`);

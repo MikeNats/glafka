@@ -3,8 +3,10 @@ import { setReviewToken } from '../../src/ticket/ticketStore.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { makeTempDir } from '../helpers/tempDir.js';
+import { makeGitRepo } from '../helpers/gitFixture.js';
+import { headTree } from '../../src/util/git.js';
 import {
   writeTicket,
   readTicket,
@@ -43,6 +45,7 @@ import {
   isCancelled,
   updateTicket,
   withTicketLock,
+  startCleanRound,
 } from '../../src/ticket/ticketStore.js';
 import type { TicketDraft } from '../../src/ticket/ticketStore.js';
 import {
@@ -941,6 +944,21 @@ test('a second review lap orders after the first, and the later one wins', () =>
   assert.equal(isReviewedSinceLastChange(ticket), true);
 });
 
+// A commit by hand adds no stage entry. Only the saved tree of the reviewed code shows it.
+test('isReviewedSinceLastChange is false once HEAD moves past the reviewed code', () => {
+  const repo = makeGitRepo();
+  const stateDir = tempStateDir();
+  writeTicket(stateDir, makeTicket({ worktree: repo, reviewedTree: headTree(repo) }));
+  recordStage(stateDir, '2026-08-03-a-stored-ticket', STAGES.REVIEW);
+  const read = () => readTicket(stateDir, '2026-08-03-a-stored-ticket');
+  assert.equal(isReviewedSinceLastChange(read()), true, 'HEAD is the reviewed code');
+
+  fs.writeFileSync(path.join(repo, 'late.txt'), 'late\n');
+  execFileSync('git', ['add', 'late.txt'], { cwd: repo });
+  execFileSync('git', ['commit', '-q', '-m', 'late'], { cwd: repo });
+  assert.equal(isReviewedSinceLastChange(read()), false, 'a commit no reviewer read');
+});
+
 test('the stage log survives an unrelated writeTicket, alongside ethos candidates', () => {
   const stateDir = tempStateDir();
   writeTicket(stateDir, makeTicket());
@@ -1277,4 +1295,12 @@ test('the flat-layout guard ignores lock files and the closed folder', () => {
     listTickets(stateDir).map((t) => t.id),
     [id],
   );
+});
+
+// A QA round starts clean too, but adds no review entry. The reviewed tree must outlive it.
+test('startCleanRound keeps the reviewed tree', () => {
+  const stateDir = tempStateDir();
+  writeTicket(stateDir, makeTicket({ reviewedTree: 'abc123' }));
+  startCleanRound(stateDir, '2026-08-03-a-stored-ticket');
+  assert.equal(readTicket(stateDir, '2026-08-03-a-stored-ticket').reviewedTree, 'abc123');
 });

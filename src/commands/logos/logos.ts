@@ -1,5 +1,6 @@
 import { poreia } from '../poreia/poreia.js';
 import { checksLine, verdictLine, RUN_ACTIVE } from '../poreia/utils.js';
+import { UNREVIEWED_COMMIT } from '../../ticket/ticketStore.js';
 import type { PoreiaView } from '../poreia/utils.js';
 
 // λόγος — the account given. It renders what is already on disk; it decides nothing and looks
@@ -65,6 +66,7 @@ export function buildRawReport(view: PoreiaView): string {
       lines.push('', `Blocking findings (${blocking.length}):`);
       for (const f of blocking) lines.push(`- ${f.finding ?? '(no detail recorded)'}`);
     }
+    if (view.unreviewedCommit) lines.push('', `After this review: ${UNREVIEWED_COMMIT}.`);
   }
 
   lines.push('', view.pushed ? `Pushed: ${view.prUrl}` : 'Not pushed.');

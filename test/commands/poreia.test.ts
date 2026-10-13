@@ -6,6 +6,7 @@ import {
   recordStage,
   readTicket,
   isReviewedSinceLastChange,
+  appendReviewFinding,
   STAGES,
   RUN_OUTCOMES,
 } from '../../src/ticket/ticketStore.js';
@@ -558,4 +559,39 @@ test('passing and failing checks are unchanged', () => {
   assert.deepEqual(checksLine(RUN_OUTCOMES.OK), { symbol: SYMBOL.DONE, label: 'checks green' });
   assert.equal(checksLine(RUN_OUTCOMES.CHECKS_FAILED)!.symbol, SYMBOL.FAILED);
   assert.equal(checksLine(null), null);
+});
+
+// epistle refuses a commit made by hand after the review, so poreia must not say "ready".
+test('poreia says a commit after the review needs you, not ready', async () => {
+  const repoRoot = makeGitRepo();
+  const stateDir = path.join(repoRoot, '.glafka');
+  const ticket = await genesis({ repoRoot, stateDir, content: 'task' });
+  const worktree = ticket.worktree!;
+  const commit = (file: string) => {
+    fs.writeFileSync(path.join(worktree, file), 'x\n');
+    execFileSync('git', ['add', file], { cwd: worktree });
+    execFileSync('git', ['commit', '-q', '-m', file], { cwd: worktree });
+  };
+  commit('a.txt');
+  const prepared = await ergonReview({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    baseRef: 'main',
+    checksCmd: 'true',
+  });
+  appendReviewFinding(stateDir, ticket.id, { verdict: 'clean', token: prepared.reviewToken });
+  assert.equal(
+    poreia({ stateDir, id: ticket.id }).unreviewedCommit,
+    false,
+    'HEAD is the reviewed code',
+  );
+
+  commit('b.txt');
+  const view = poreia({ stateDir, id: ticket.id });
+  assert.equal(view.unreviewedCommit, true);
+  const out = renderPoreia(view);
+  assert.doesNotMatch(out, /ready for you/);
+  assert.match(out, new RegExp(`\\${SYMBOL.NEEDS_YOU} a commit no reviewer has read`));
+  assert.match(renderPoreiaAll([view]), /needs you {2}— a commit no reviewer has read/);
 });

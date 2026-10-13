@@ -1392,3 +1392,329 @@ test('an AC ticket hears how to verify again, at the conflict and after the hand
       /the code changed after the criteria passed/.test(err.message) && hint.test(err.message),
   );
 });
+
+// --------------------------------------------------------------------------- The pushed code is the reviewed code
+
+// Every branch on the fake remote. Nothing of the ticket's may be there after a refused push.
+function remoteBranches(remoteDir: string): string {
+  return execFileSync('git', ['branch', '--list'], { cwd: remoteDir, encoding: 'utf8' });
+}
+
+// A coder that ran `git checkout -b` left HEAD off the ticket's branch. Pushing the branch by
+// name would send the old code while the reviewer read the new.
+test('epistle refuses a worktree that left the ticket branch, even with --unreviewed', async () => {
+  const repoRoot = makeGitRepo();
+  const remoteDir = addBareRemote(repoRoot);
+  const stateDir = tempStateDir();
+  const ticket = await genesis({ repoRoot, stateDir, content: 'ship this' });
+  execFileSync('git', ['checkout', '-q', '-b', 'side'], { cwd: ticket.worktree! });
+
+  await assert.rejects(
+    () =>
+      epistle({ stateDir, id: ticket.id, repoRoot, unreviewed: true, createPr: () => 'unused' }),
+    new RegExp(`worktree is on branch side, not on ${ticket.branch}`),
+  );
+  assert.ok(
+    !remoteBranches(remoteDir).includes(ticket.branch!),
+    'the ticket branch was not pushed',
+  );
+  assert.ok(!remoteBranches(remoteDir).includes('side'), 'the other branch was not pushed');
+});
+
+test('epistle names a detached HEAD instead of pushing', async () => {
+  const { repoRoot, stateDir, ticket } = await pushableTicket();
+  execFileSync('git', ['checkout', '-q', '--detach'], { cwd: ticket.worktree! });
+
+  await assert.rejects(
+    () =>
+      epistle({ stateDir, id: ticket.id, repoRoot, unreviewed: true, createPr: () => 'unused' }),
+    /worktree is on no branch \(a detached HEAD\)/,
+  );
+});
+
+// The tidy-up agents work in the same worktree between the gates and the push.
+test('a tidy-up that switches branch stops the push', async () => {
+  const repoRoot = makeGitRepo();
+  const remoteDir = addBareRemote(repoRoot);
+  const stateDir = tempStateDir();
+  const ticket = await genesis({ repoRoot, stateDir, content: 'ship this' });
+  const switchBranch = () => {
+    execFileSync('git', ['checkout', '-q', '-b', 'tidy'], { cwd: ticket.worktree! });
+  };
+
+  await assert.rejects(
+    () =>
+      epistle({
+        stateDir,
+        id: ticket.id,
+        repoRoot,
+        unreviewed: true,
+        runTidy: switchBranch,
+        createPr: () => 'unused',
+      }),
+    /worktree is on branch tidy/,
+  );
+  assert.ok(!remoteBranches(remoteDir).includes(ticket.branch!), 'nothing was pushed');
+});
+
+// A real round: the checks pass, then the reviewer records clean with this round's token.
+async function reviewedTicket() {
+  const { repoRoot, stateDir, ticket } = await pushableTicket();
+  const worktree = ticket.worktree!;
+  fs.writeFileSync(path.join(worktree, 'a.txt'), 'a\n');
+  execFileSync('git', ['add', 'a.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '-q', '-m', 'add a'], { cwd: worktree });
+  const prepared = await ergonReview({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    baseRef: 'main',
+    checksCmd: 'true',
+  });
+  appendReviewFinding(stateDir, ticket.id, {
+    verdict: REVIEW_VERDICT.CLEAN,
+    token: prepared.reviewToken,
+  });
+  return { repoRoot, stateDir, ticket, worktree };
+}
+
+// A commit by hand adds no stage entry, so the log alone called this reviewed.
+test('a commit made after a clean review is not pushed as reviewed', async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  fs.writeFileSync(path.join(worktree, 'b.txt'), 'b\n');
+  execFileSync('git', ['add', 'b.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '-q', '-m', 'add b'], { cwd: worktree });
+
+  await assert.rejects(
+    () => epistle({ stateDir, id: ticket.id, repoRoot, createPr: () => 'unused' }),
+    /the code changed after the last review .* a commit no reviewer has read/,
+  );
+  assert.equal(readTicket(stateDir, ticket.id).prUrl, null);
+});
+
+// epistle's own rebase and docs commit make a new tree too. They are ours, so the review
+// holds, and the "retry just the PR" hint still works.
+test("a reviewed ticket stays reviewed across epistle's own rebase and docs commit", async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  fs.writeFileSync(path.join(repoRoot, 'other.txt'), 'someone else\n');
+  execFileSync('git', ['add', 'other.txt'], { cwd: repoRoot });
+  execFileSync('git', ['commit', '-q', '-m', 'other work'], { cwd: repoRoot });
+  execFileSync('git', ['push', '-q', 'origin', 'main'], { cwd: repoRoot });
+  const writeDocs = () => {
+    const docs = path.join(worktree, 'docs/glafka/architecture');
+    fs.mkdirSync(docs, { recursive: true });
+    fs.writeFileSync(path.join(docs, 'ci.md'), 'synced\n');
+  };
+
+  await assert.rejects(
+    () =>
+      epistle({
+        stateDir,
+        id: ticket.id,
+        repoRoot,
+        runTidy: writeDocs,
+        createPr: () => {
+          throw new PullRequestFailedError('gh: not logged in');
+        },
+        findOpenPr: () => null,
+      }),
+    /retry just the PR/,
+  );
+  const retried = await epistle({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    createPr: () => 'https://example/pull/13',
+    findOpenPr: () => null,
+  });
+  assert.equal(retried.ticket.prUrl, 'https://example/pull/13');
+});
+
+// The old clean verdict has no bypass note of its own, so this push used to look fully reviewed.
+test('--unreviewed over a commit made after the review says so on the ticket and in the PR', async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  fs.writeFileSync(path.join(worktree, 'b.txt'), 'b\n');
+  execFileSync('git', ['add', 'b.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '-q', '-m', 'add b'], { cwd: worktree });
+  let body = '';
+
+  await epistle({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    unreviewed: true,
+    createPr: (args) => {
+      body = args.body;
+      return 'https://example/pull/14';
+    },
+    findOpenPr: () => null,
+  });
+
+  const log = readTicket(stateDir, ticket.id).stageLog;
+  assert.equal(log[log.length - 1].note, 'unreviewed (code changed after the review)');
+  assert.match(body, /gates walked past: unreviewed \(code changed after the review\)/);
+});
+
+// glafka commits the tidy-up docs itself. A commit the agents made on their own was pushed unchecked.
+test('a tidy-up agent that commits code itself stops the push', async () => {
+  const repoRoot = makeGitRepo();
+  const remoteDir = addBareRemote(repoRoot);
+  const stateDir = tempStateDir();
+  const ticket = await genesis({ repoRoot, stateDir, content: 'ship this' });
+  const worktree = ticket.worktree!;
+  const commitCode = () => {
+    fs.writeFileSync(path.join(worktree, 'sneaky.js'), 'export const x = 1;\n');
+    execFileSync('git', ['add', 'sneaky.js'], { cwd: worktree });
+    execFileSync('git', ['commit', '-q', '-m', 'agent commit'], { cwd: worktree });
+  };
+
+  await assert.rejects(
+    () =>
+      epistle({
+        stateDir,
+        id: ticket.id,
+        repoRoot,
+        unreviewed: true,
+        runTidy: commitCode,
+        createPr: () => 'unused',
+      }),
+    /something during the tidy-up committed more than docs \(sneaky\.js\)/,
+  );
+  assert.ok(!remoteBranches(remoteDir).includes(ticket.branch!), 'nothing was pushed');
+});
+
+// `rev-parse --abbrev-ref` answers heads/<name> when a tag has the same name.
+test('a tag named like the ticket branch does not block the push', async () => {
+  const { repoRoot, stateDir, ticket } = await pushableTicket();
+  execFileSync('git', ['tag', ticket.branch!], { cwd: ticket.worktree! });
+
+  const result = await epistle({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    unreviewed: true,
+    createPr: () => 'https://example/pull/15',
+    findOpenPr: () => null,
+  });
+  assert.equal(result.ticket.prUrl, 'https://example/pull/15');
+});
+
+// A reviewed ticket with no acceptance criteria needs a new review after a hand rebase too.
+test('a reviewed ticket hears to review again, at the conflict and after the hand rebase', async () => {
+  const { repoRoot, stateDir, ticket } = await conflictingTicket();
+  const worktree = ticket.worktree!;
+  const prepared = await ergonReview({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    baseRef: 'main',
+    checksCmd: 'true',
+  });
+  appendReviewFinding(stateDir, ticket.id, {
+    verdict: REVIEW_VERDICT.CLEAN,
+    token: prepared.reviewToken,
+  });
+  const push = () =>
+    epistle({ stateDir, id: ticket.id, repoRoot, createPr: () => 'https://example.com/pr/2' });
+  const hint = new RegExp(`after a rebase by hand, run glafka ergon ${ticket.id} --review`);
+  await assert.rejects(push, (err: Error) => /f\.txt/.test(err.message) && hint.test(err.message));
+
+  fs.writeFileSync(path.join(worktree, 'f.txt'), 'resolved\n');
+  execFileSync('git', ['commit', '-q', '-am', 'resolved'], { cwd: worktree });
+  assert.throws(
+    () => epistlePrepare({ stateDir, id: ticket.id, repoRoot }),
+    /a commit no reviewer has read/,
+  );
+});
+
+// The tidy-up prompt never says "do not commit". An agent that commits its own doc edit did
+// nothing wrong, so the push goes on and the review still holds.
+test('a tidy-up agent that commits only docs itself does not stop the push', async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  const commitDocs = () => {
+    const docs = path.join(worktree, 'docs/glafka/architecture');
+    fs.mkdirSync(docs, { recursive: true });
+    fs.writeFileSync(path.join(docs, 'ci.md'), 'synced\n');
+    execFileSync('git', ['add', 'docs'], { cwd: worktree });
+    execFileSync('git', ['commit', '-q', '-m', 'agent docs'], { cwd: worktree });
+  };
+
+  await assert.rejects(
+    () =>
+      epistle({
+        stateDir,
+        id: ticket.id,
+        repoRoot,
+        runTidy: commitDocs,
+        createPr: () => {
+          throw new PullRequestFailedError('gh: not logged in');
+        },
+        findOpenPr: () => null,
+      }),
+    /retry just the PR/,
+  );
+  const retried = await epistle({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    createPr: () => 'https://example/pull/16',
+    findOpenPr: () => null,
+  });
+  assert.equal(retried.ticket.prUrl, 'https://example/pull/16');
+});
+
+test('a tidy-up that rewrites the branch history stops the push', async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  const rewrite = () => {
+    execFileSync('git', ['reset', '-q', '--hard', 'HEAD~1'], { cwd: worktree });
+  };
+
+  await assert.rejects(
+    () =>
+      epistle({ stateDir, id: ticket.id, repoRoot, runTidy: rewrite, createPr: () => 'unused' }),
+    /something during the tidy-up rewrote the branch history/,
+  );
+});
+
+// Docs written after the review are not code: a plan or map edit, even with a Greek name.
+test('a docs-only commit after the review keeps the ticket reviewed', async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  const docs = path.join(worktree, 'docs/glafka/architecture');
+  fs.mkdirSync(docs, { recursive: true });
+  fs.writeFileSync(path.join(docs, 'λόγος.md'), 'map\n');
+  execFileSync('git', ['add', 'docs'], { cwd: worktree });
+  execFileSync('git', ['commit', '-q', '-m', 'docs by hand'], { cwd: worktree });
+
+  const result = await epistle({
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    createPr: () => 'https://example/pull/17',
+    findOpenPr: () => null,
+  });
+  assert.equal(result.ticket.prUrl, 'https://example/pull/17');
+});
+
+// isolation.json sits in docs/glafka, but it decides what commands run. It is not a doc.
+test('a tidy-up agent that commits glafka config stops the push', async () => {
+  const { repoRoot, stateDir, ticket, worktree } = await reviewedTicket();
+  const commitConfig = () => {
+    const dir = path.join(worktree, 'docs/glafka/architecture');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'isolation.json'), '{}\n');
+    execFileSync('git', ['add', 'docs'], { cwd: worktree });
+    execFileSync('git', ['commit', '-q', '-m', 'agent config'], { cwd: worktree });
+  };
+
+  await assert.rejects(
+    () =>
+      epistle({
+        stateDir,
+        id: ticket.id,
+        repoRoot,
+        runTidy: commitConfig,
+        createPr: () => 'unused',
+      }),
+    /committed more than docs \(docs\/glafka\/architecture\/isolation\.json\)/,
+  );
+});

@@ -10,6 +10,10 @@ import {
   openPullRequestForBranch,
   worktreeCheckKey,
   headTree,
+  headCommit,
+  currentBranch,
+  isAncestor,
+  pathsChangedSince,
   PullRequestFailedError,
 } from '../../util/git.js';
 import { checksVerdict, CHECK_VERDICT } from '../../checks.js';
@@ -27,11 +31,14 @@ import {
   assertNotClosed,
   assertLastRunOk,
   refreshVerifiedCode,
+  refreshReviewedTree,
+  hasUnreviewedCommit,
+  UNREVIEWED_COMMIT,
   activeCriteria,
   liveReviewerRoles,
 } from '../../ticket/ticketStore.js';
 import type { Ticket } from '../../types/ticket.js';
-import { DOCS_ROOT } from '../../memory/docsStore.js';
+import { DOCS_ROOT, isTidyDoc } from '../../memory/docsStore.js';
 import { odysseUpdate } from '../odysse/odysse.js';
 import { VERDICT_SOURCE } from '../ergon/ergon.js';
 import { assertNoLiveRun } from '../../ticket/background.js';
@@ -67,9 +74,51 @@ export interface EpistleResult {
   bypassed: string | null;
 }
 
-// A rebase by hand makes new code, and the criteria passed on the old code.
+// A rebase by hand makes new code, and the review and the criteria were about the old code.
 const afterHandRebase = (id: string): string =>
-  `  after a rebase by hand, run glafka ergon ${id} --review — the criteria are checked again`;
+  `  after a rebase by hand, run glafka ergon ${id} --review — the new code is checked again`;
+
+// The reviewer read HEAD, and the push sends the ticket's branch by name. A coder that ran
+// `git checkout -b` makes those two different, so the push would send code nobody reviewed.
+function assertOnTicketBranch(id: string, worktree: string, branch: string): void {
+  const onBranch = currentBranch(worktree);
+  if (onBranch === branch) return;
+  const where = onBranch === 'HEAD' ? 'no branch (a detached HEAD)' : `branch ${onBranch}`;
+  throw new Error(
+    `ticket ${id} can't be pushed — its worktree is on ${where}, not on ${branch}.\n` +
+      `  see it:    git -C ${worktree} status\n` +
+      `  then:      move the work back onto ${branch}, review it, and run epistle again`,
+  );
+}
+
+// The tidy-up agents work in this worktree between the gates and the push. Their job is docs, so a
+// branch switch, a rewritten history or a commit of anything but tidy docs is code no gate looked at.
+function assertTidyChangedOnlyDocs(ticket: Ticket, commitBeforeTidy: string): void {
+  const worktree = ticket.worktree!;
+  assertOnTicketBranch(ticket.id, worktree, ticket.branch!);
+  if (headCommit(worktree) === commitBeforeTidy) return;
+  const rewritten = !isAncestor(worktree, commitBeforeTidy);
+  const code = rewritten
+    ? []
+    : pathsChangedSince(worktree, commitBeforeTidy).filter((file) => !isTidyDoc(file));
+  if (!rewritten && code.length === 0) return;
+  const what = rewritten
+    ? 'rewrote the branch history'
+    : `committed more than docs (${code.join(', ')})`;
+  throw new Error(
+    `ticket ${ticket.id} can't be pushed — something during the tidy-up ${what}.\n` +
+      `  see it:    git -C ${worktree} log --oneline ${commitBeforeTidy.slice(0, 12)}..HEAD\n` +
+      `  then:      drop those commits and run epistle again, or review them: glafka ergon ${ticket.id} --review`,
+  );
+}
+
+// Our own rebase or docs commit moved HEAD after the gates held on `from`. The review and
+// the criteria were about the code before it, so both move with it.
+function followOwnCommit(stateDir: string, id: string, from: string, worktree: string): void {
+  const now = codeState(worktree);
+  refreshVerifiedCode(stateDir, id, { from, ...now });
+  refreshReviewedTree(stateDir, id, { from, tree: now.tree });
+}
 
 // Every gate, the rebase, and the tidy-up prompts — but NO push. The prompts point at the ticket's
 // own worktree, so the agent writes the branch's docs and `commitTidyDocs` can commit them.
@@ -126,15 +175,21 @@ export function epistlePrepare({
   // Was this really built under the guardrails we think it was?
   assertUnchanged({ repoRoot, ticket, action: 'push' });
 
+  // `--unreviewed` never skips this: a push from another branch is not this ticket's code.
+  assertOnTicketBranch(id, ticket.worktree, ticket.branch);
+
   // Checked first. "Reviewed" means since the last code change, not ever.
   // `--unreviewed` skips this, and we write that on the ticket.
-  if (!unreviewed && !isReviewedSinceLastChange(ticket)) {
+  const reviewed = isReviewedSinceLastChange(ticket);
+  if (!unreviewed && !reviewed) {
     const reviewedAt = lastStageAt(ticket, STAGES.REVIEW);
     const codedAt = lastStageAt(ticket, STAGES.ERGON);
     const why =
       reviewedAt === null
         ? 'it has never been reviewed'
-        : `the last review (${reviewedAt}) is older than the last code change (${codedAt})`;
+        : hasUnreviewedCommit(ticket)
+          ? `the code changed after the last review (${reviewedAt}) — ${UNREVIEWED_COMMIT}`
+          : `the last review (${reviewedAt}) is older than the last code change (${codedAt})`;
     throw new Error(
       `ticket ${id} can't be pushed — ${why}.\n` +
         `  review it:      glafka ergon ${id} --review\n` +
@@ -274,7 +329,9 @@ export function epistlePrepare({
   // Only when a review gate was really walked past. Now that one flag opens both gates, a push with
   // a genuine `krisis` clean can carry `--unreviewed` purely for the checks gate — and claiming it
   // skipped the review too would be a lie in the other direction.
-  const skippedReview = unreviewed ? (BYPASS_NOTE[pushVerdict.source] ?? null) : null;
+  // An old clean verdict has no note of its own. Over newer code it is still a skipped review.
+  const staleReview = reviewed ? null : 'unreviewed (code changed after the review)';
+  const skippedReview = unreviewed ? (BYPASS_NOTE[pushVerdict.source] ?? staleReview) : null;
   // Both can be true. A push that skipped review AND verified nothing must say both.
   const skippedChecks = unreviewed && lastReviewUnverified(ticket) ? 'unverified' : null;
   const bypassed = [skippedReview, skippedChecks].filter(Boolean).join(', ') || null;
@@ -285,10 +342,10 @@ export function epistlePrepare({
   try {
     rebaseOnto(ticket.worktree, base);
   } catch (err) {
-    if (activeCriteria(ticket).length === 0) throw err;
+    if (activeCriteria(ticket).length === 0 && !ticket.reviewedTree) throw err;
     throw new Error(`${(err as Error).message}\n${afterHandRebase(id)}`, { cause: err });
   }
-  refreshVerifiedCode(stateDir, id, { from: treeBeforeRebase, ...codeState(ticket.worktree) });
+  followOwnCommit(stateDir, id, treeBeforeRebase, ticket.worktree);
 
   // Compare against the same branch we just moved onto. Comparing against
   // the local copy would pull in other people's commits as if they were ours.
@@ -465,21 +522,20 @@ export async function epistle({
   }) => void | Promise<void>;
 }): Promise<EpistleResult & { tidyCommitted: string[]; prUpdated: boolean }> {
   const prepared = epistlePrepare(options);
+  const worktree = prepared.ticket.worktree!;
+  const commitBeforeTidy = headCommit(worktree);
+  const treeBeforeTidy = headTree(worktree);
   await runTidy({
     ticket: prepared.ticket,
     docSyncPrompt: prepared.docSyncPrompt,
     odysseUpdatePrompt: prepared.odysseUpdatePrompt,
     auditDue: prepared.auditDue,
   });
-  const worktree = prepared.ticket.worktree;
-  const treeBeforeDocs = worktree ? headTree(worktree) : null;
+  assertTidyChangedOnlyDocs(prepared.ticket, commitBeforeTidy);
   const tidyCommitted = commitTidyDocs({ ticket: prepared.ticket });
-  // Same as after the rebase: a docs-only commit of ours keeps the criteria passed.
-  if (worktree && treeBeforeDocs && tidyCommitted.length > 0) {
-    refreshVerifiedCode(options.stateDir, options.id, {
-      from: treeBeforeDocs,
-      ...codeState(worktree),
-    });
+  // Same as after the rebase: docs-only commits, the agents' or ours, keep the review and the criteria.
+  if (headTree(worktree) !== treeBeforeTidy) {
+    followOwnCommit(options.stateDir, options.id, treeBeforeTidy, worktree);
   }
   const { ticket, prUpdated } = epistlePush({
     stateDir: options.stateDir,

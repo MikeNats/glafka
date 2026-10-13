@@ -99,6 +99,8 @@ export const StoredTicketSchema = z.object({
   checks: CachedChecksSchema.nullable().default(null),
   reviewFindings: z.array(ReviewFindingSchema).default([]),
   reviewToken: z.string().nullable().default(null),
+  // HEAD's tree when this round's reviewer got the diff. A commit after it is unreviewed code.
+  reviewedTree: z.string().nullable().default(null),
   // The reviewer roles dispatched for the CURRENT round. A round is done when every one of them is in a
   // terminal state, so "done" cannot be read off the first reviewer alone once a diff earns more than one.
   reviewerRoles: z.array(z.string()).default([]),

@@ -1,4 +1,5 @@
 import { STAGES, RUN_OUTCOMES, lastStageIndex, currentStage } from './stages.js';
+import { reviewedCodeChanged } from './reviewedTree.js';
 import type { Ticket } from '../../types/ticket.js';
 
 // --------------------------------------------------------------------------- Values worked out from the ticket, never saved
@@ -91,13 +92,24 @@ export function lastReviewQaBlocked(ticket: Ticket): boolean {
   return index !== -1 && ticket.stageLog[index].qaBlocked === true;
 }
 
-// True only if a review ran after the last code change.
-export function isReviewedSinceLastChange(ticket: Ticket): boolean {
+// The stage log alone: a review after the last ergon run. Blind to a commit made by hand.
+export function reviewedAfterLastRun(ticket: Ticket): boolean {
   const reviewed = lastStageIndex(ticket, STAGES.REVIEW);
   if (reviewed === -1) return false;
   // No ergon run still counts. Hand-written code can be reviewed too.
-  const coded = lastStageIndex(ticket, STAGES.ERGON);
-  return reviewed > coded;
+  return reviewed > lastStageIndex(ticket, STAGES.ERGON);
+}
+
+// True only if a review ran after the last code change.
+export function isReviewedSinceLastChange(ticket: Ticket): boolean {
+  // A commit by hand adds no stage entry, so the code itself is compared too.
+  return reviewedAfterLastRun(ticket) && !reviewedCodeChanged(ticket);
+}
+
+// Reviewed by the log, but the code moved since: a commit by hand. One wording everywhere.
+export const UNREVIEWED_COMMIT = 'a commit no reviewer has read';
+export function hasUnreviewedCommit(ticket: Ticket): boolean {
+  return reviewedAfterLastRun(ticket) && reviewedCodeChanged(ticket);
 }
 
 // --------------------------------------------------------------------------- The one line the CLI prints

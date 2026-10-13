@@ -14,3 +14,4 @@ export * from './ticketStore/criteriaSkips.js';
 export * from './ticketStore/verifyResults.js';
 export * from './ticketStore/runState.js';
 export * from './ticketStore/newRound.js';
+export * from './ticketStore/reviewedTree.js';
