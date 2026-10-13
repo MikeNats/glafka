@@ -153,6 +153,10 @@ function runAgent(
     });
 
     // The prompt goes in on stdin, the same way execFileSync's `input` did.
+    // An agent that quits before reading it closes the pipe: 'close' then reports its exit code.
+    child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EPIPE') reject(err);
+    });
     child.stdin.end(prompt);
   });
 }

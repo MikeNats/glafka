@@ -226,6 +226,28 @@ test('a failing agent records its real exit code, not null', async () => {
   assert.equal(rec!.exitCode, 7);
 });
 
+// An agent that quits before reading its prompt closes the pipe under us. That crashed glafka
+// with EPIPE. The exit code is the real answer, so that is what is reported.
+test('an agent that exits without reading its prompt reports its exit code, not EPIPE', async () => {
+  const stateDir = makeTempDir('deliver');
+  // Far past any pipe buffer, so the write always meets a closed pipe.
+  const bigPrompt = 'x'.repeat(4 * 1024 * 1024);
+
+  await assert.rejects(
+    () =>
+      deliverPrompt(bigPrompt, {
+        agentCmd: 'exit 7',
+        stateDir,
+        ticketId: null,
+        stage: 'odysse',
+        observability: true,
+      }),
+    (err: Error) => err.name === 'AgentFailedError',
+  );
+  const [rec] = readRunRecords(stateDir, null);
+  assert.equal(rec!.exitCode, 7);
+});
+
 // Printing the prompt IS the run — the session carries it out. Recorded as a
 // hand-over, because nothing else ever will: no process starts, so nothing
 // finishes. Without this the whole brainstorm-and-plan half of a ticket, and
