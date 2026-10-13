@@ -1,0 +1,7 @@
+description = "Build or refresh the codebase's hierarchical architecture map"
+
+prompt = """
+Flags: {{args}}
+
+Read docs/glafka/skills/odysse.md in this repo and follow it exactly.
+"""

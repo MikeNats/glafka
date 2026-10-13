@@ -1,0 +1,50 @@
+{
+  "level": 0,
+  "name": "off",
+  "note": "Nothing is enforced. This is exactly how glafka behaved before guardrails existed. It is the default so that adding this folder changes nothing until you ask it to.",
+  "failClosed": false,
+  "onUnknownAction": "allow",
+  "audit": {
+    "enabled": false,
+    "path": "$stateDir/audit/$ticketId.jsonl",
+    "redactFields": ["content", "newString", "oldString", "prompt"],
+    "redactEnvMatching": []
+  },
+  "filesystem": {
+    "enabled": false,
+    "allowRoots": [],
+    "denyWithin": [],
+    "followSymlinks": false
+  },
+  "exec": {
+    "enabled": false,
+    "allowShellStrings": true,
+    "allow": [],
+    "never": []
+  },
+  "network": {
+    "enabled": false,
+    "mode": "open",
+    "allowHosts": []
+  },
+  "secrets": {
+    "enabled": false,
+    "keepEnv": []
+  },
+  "sandbox": {
+    "enabled": false,
+    "backend": "none",
+    "image": null,
+    "network": true,
+    "extraMounts": []
+  },
+  "override": {
+    "mayNarrow": [],
+    "mayWiden": [],
+    "neverOverridable": []
+  },
+  "hostexec": {
+    "flagHostExecutingChanges": false,
+    "hostExecutingPatterns": []
+  }
+}

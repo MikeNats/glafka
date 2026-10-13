@@ -1,0 +1,7 @@
+- Talk to a module through its entry point, never reach into its internals.
+- An interface with one implementation is indirection, not abstraction — wait for the second.
+- Extend by adding a case or an adapter, not by editing the same switch in five files.
+- Prefer composition to inheritance.
+- If a type permits a state the code then has to guard against, the type is wrong.
+- Build for the requirement that exists today, not one you expect.
+- Remove duplicated knowledge, not duplicated text — three occurrences is when to extract, two is usually coincidence.

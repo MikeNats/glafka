@@ -1,0 +1,7 @@
+description = "Turn a persona on or off — how glafka's answers are written"
+
+prompt = """
+Persona: {{args}}
+
+Read docs/glafka/skills/prosopon.md in this repo and follow it exactly.
+"""

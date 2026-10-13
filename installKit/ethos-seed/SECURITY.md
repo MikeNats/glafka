@@ -1,0 +1,5 @@
+- Server-controlled fields are set on the server; never read an owner id, role, status or quota from a request body.
+- Queries and commands use bound parameters or argument lists, never a string built from input.
+- No secret, key or token in source, and none in a log line.
+- Every entry point that reads data checks that this caller owns it, not merely that someone is signed in.
+- Every entry point has a limit — body size, page size, rate — so one caller cannot exhaust the system.

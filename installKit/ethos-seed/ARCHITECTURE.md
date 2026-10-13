@@ -1,0 +1,5 @@
+- Core logic depends on interfaces it owns, never on a vendor library directly.
+- A vendor library is used inside its adapter and nowhere else.
+- One folder, one concern — prefer more small folders with plain names over few long files.
+- Every adapter for a port passes the same conformance suite.
+- A vendor's own types and errors stop at the adapter; they never appear in a signature the core owns.

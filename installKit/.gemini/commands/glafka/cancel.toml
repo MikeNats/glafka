@@ -1,0 +1,7 @@
+description = "Abandon a ticket before it is pushed"
+
+prompt = """
+Ticket: {{args}}
+
+Read docs/glafka/skills/cancel.md in this repo and follow it exactly.
+"""

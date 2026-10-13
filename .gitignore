@@ -1,0 +1,19 @@
+node_modules/
+dist
+.DS_Store
+*.log
+*.tgz
+
+# glafka's own state and worktrees
+.glafka/
+.glafka-scratch
+.worktrees/
+.worktrees.superpowers/
+
+# superpowers: scratch files and AI plan docs
+.superpowers/
+docs/superpowers/
+
+# secrets
+.env
+.env.*

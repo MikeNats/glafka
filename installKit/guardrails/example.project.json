@@ -1,0 +1,24 @@
+{
+  "note": "Copy this to docs/glafka/guardrails.json in your project. Only `level` is required — everything else is a tweak on top of that level. Level 3 is used here because it is the first level that lets a project widen network.allowHosts. Level 2 already lets you widen exec.allow and secrets.keepEnv, but it has no network allow list. Run `glafka guardrails` after editing — it prints anything it refused.",
+
+  "level": 3,
+
+  "exec": {
+    "allow": [
+      { "cmd": "psql", "anyArgs": true },
+      { "cmd": "docker", "subcommands": ["compose"] }
+    ]
+  },
+
+  "network": {
+    "allowHosts": ["registry.npmjs.org", "my-internal-registry.example.com"]
+  },
+
+  "filesystem": {
+    "denyWithin": ["prisma/migrations/**", "src/generated/**"]
+  },
+
+  "secrets": {
+    "keepEnv": ["DATABASE_URL_TEST"]
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "level": 4,
+  "name": "locked",
+  "note": "The wall goes up. The agent runs inside a container that has only the worktree mounted and no network at all. Dependencies must already be installed before the run starts. At this level the doormen barely matter \u2014 they are kept on only so the audit log stays complete.",
+  "failClosed": true,
+  "onUnknownAction": "deny",
+  "audit": {
+    "enabled": true,
+    "path": "$stateDir/audit/$ticketId.jsonl",
+    "redactFields": ["content", "newString", "oldString", "prompt"],
+    "redactEnvMatching": [
+      "SECRET",
+      "TOKEN",
+      "PASS",
+      "PWD",
+      "KEY",
+      "CREDENTIAL",
+      "AUTH",
+      "DATABASE_URL",
+      "DSN",
+      "CONNECTION_STRING",
+      "PRIVATE",
+      "SALT",
+      "SESSION",
+      "COOKIE",
+      "WEBHOOK"
+    ]
+  },
+  "filesystem": {
+    "enabled": true,
+    "allowRoots": ["TICKET_WORKTREE", "TICKET_SCRATCH"],
+    "denyWithin": [
+      ".git",
+      ".git/hooks/**",
+      ".git/config",
+      ".git/info/exclude",
+      "**/.env",
+      "**/.env.*",
+      ".glafka.json",
+      "docs/glafka/guardrails.json",
+      "docs/glafka/architecture/isolation.json",
+      "docs/glafka/ethos/**",
+      "**/node_modules/.bin/**",
+      ".claude/**",
+      ".gemini/**",
+      ".cursor/**",
+      ".opencode/**",
+      ".kimi/**",
+      ".kimi-code/**",
+      ".github/skills/**",
+      ".github/hooks/**",
+      ".glafka",
+      ".glafka/**",
+      "**/node_modules/**"
+    ],
+    "followSymlinks": true
+  },
+  "exec": {
+    "enabled": true,
+    "allowShellStrings": false,
+    "allow": [
+      {
+        "cmd": "node",
+        "anyArgs": true,
+        "denyArgs": ["-e", "--eval", "-p", "--print"]
+      },
+      {
+        "cmd": "npm",
+        "subcommands": ["run", "test", "ls"]
+      },
+      {
+        "cmd": "python3",
+        "anyArgs": true,
+        "denyArgs": ["-c", "-m"]
+      },
+      {
+        "cmd": "uv",
+        "subcommands": ["run"]
+      },
+      {
+        "cmd": "pytest",
+        "anyArgs": true
+      },
+      {
+        "cmd": "git",
+        "subcommands": [
+          "status",
+          "diff",
+          "log",
+          "show",
+          "add",
+          "commit",
+          "rev-parse",
+          "ls-files",
+          "rebase",
+          "rm",
+          "mv",
+          "checkout",
+          "switch",
+          "restore",
+          "stash"
+        ],
+        "denyArgs": ["--hard", "--force", "-f"]
+      },
+      {
+        "cmd": "rg",
+        "anyArgs": true
+      },
+      {
+        "cmd": "ls",
+        "anyArgs": true
+      },
+      {
+        "cmd": "cat",
+        "anyArgs": true
+      },
+      {
+        "cmd": "mkdir",
+        "anyArgs": true
+      },
+      {
+        "cmd": "touch",
+        "anyArgs": true
+      },
+      {
+        "cmd": "echo",
+        "anyArgs": true
+      },
+      {
+        "cmd": "glafka",
+        "subcommands": ["aporia", "krisis", "epalitheusis", "psyche", "guardrails", "ergon"]
+      }
+    ],
+    "never": [
+      "git push",
+      "git remote",
+      "git config",
+      "gh",
+      "npm exec",
+      "npm x",
+      "pnpm dlx",
+      "yarn dlx",
+      "npm publish",
+      "pnpm publish",
+      "yarn publish",
+      "cargo publish",
+      "twine upload",
+      "docker",
+      "kubectl",
+      "terraform",
+      "helm",
+      "ssh",
+      "scp",
+      "rsync",
+      "curl",
+      "wget"
+    ]
+  },
+  "network": {
+    "enabled": true,
+    "mode": "none",
+    "allowHosts": []
+  },
+  "secrets": {
+    "enabled": true,
+    "keepEnv": [
+      "PATH",
+      "HOME",
+      "LANG",
+      "LC_ALL",
+      "TERM",
+      "TMPDIR",
+      "NODE_ENV",
+      "CI",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+      "CLAUDE_CONFIG_DIR",
+      "GLAFKA_TICKET_ID",
+      "GLAFKA_PORT",
+      "ANTHROPIC_BASE_URL",
+      "OPENAI_API_KEY",
+      "OPENAI_BASE_URL",
+      "GEMINI_API_KEY",
+      "GOOGLE_API_KEY",
+      "MOONSHOT_API_KEY",
+      "OPENROUTER_API_KEY",
+      "CURSOR_API_KEY",
+      "GITHUB_TOKEN"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "backend": "auto",
+    "image": "node:22",
+    "network": false,
+    "extraMounts": []
+  },
+  "override": {
+    "mayNarrow": [
+      "filesystem.denyWithin",
+      "exec.allow",
+      "exec.never",
+      "secrets.keepEnv",
+      "audit.redactEnvMatching",
+      "hostexec.hostExecutingPatterns"
+    ],
+    "mayWiden": [],
+    "neverOverridable": [
+      "sandbox.extraMounts",
+      "level",
+      "failClosed",
+      "onUnknownAction",
+      "audit.enabled",
+      "filesystem.allowRoots",
+      "filesystem.followSymlinks",
+      "exec.allowShellStrings",
+      "exec.never",
+      "network.mode",
+      "sandbox.enabled",
+      "sandbox.network"
+    ]
+  },
+  "hostexec": {
+    "flagHostExecutingChanges": true,
+    "hostExecutingPatterns": []
+  }
+}

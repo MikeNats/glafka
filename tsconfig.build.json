@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["installKit/bin/**/*", "src/**/*", "installKit/guardrails/**/*"],
+  "exclude": ["node_modules", "dist", ".worktrees", ".glafka-scratch", "**/*.test.ts"]
+}

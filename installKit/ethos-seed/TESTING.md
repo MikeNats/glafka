@@ -1,0 +1,6 @@
+- Tests land in the same change as the code they cover.
+- A bug fix gets its regression test written before the fix.
+- A test asserts behaviour, not implementation — renaming an internal must not break it.
+- Never sleep for a fixed time; wait for a condition.
+- End-to-end tests set up their data through the API or the database, never by driving the UI.
+- Every path a user can reach gets one end-to-end test; the cases belong in fast unit tests.

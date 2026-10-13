@@ -1,0 +1,66 @@
+{
+  "level": 1,
+  "name": "observe",
+  "note": "Blocks nothing. Writes down everything. Run here for a week first \u2014 the log tells you which commands your agent actually needs, so level 2's allow list is built from evidence instead of guesswork.",
+  "failClosed": false,
+  "onUnknownAction": "allow",
+  "audit": {
+    "enabled": true,
+    "path": "$stateDir/audit/$ticketId.jsonl",
+    "redactFields": ["content", "newString", "oldString", "prompt"],
+    "redactEnvMatching": [
+      "SECRET",
+      "TOKEN",
+      "PASS",
+      "PWD",
+      "KEY",
+      "CREDENTIAL",
+      "AUTH",
+      "DATABASE_URL",
+      "DSN",
+      "CONNECTION_STRING",
+      "PRIVATE",
+      "SALT",
+      "SESSION",
+      "COOKIE",
+      "WEBHOOK"
+    ]
+  },
+  "filesystem": {
+    "enabled": false,
+    "allowRoots": ["TICKET_WORKTREE", "TICKET_SCRATCH"],
+    "denyWithin": [],
+    "followSymlinks": true
+  },
+  "exec": {
+    "enabled": false,
+    "allowShellStrings": true,
+    "allow": [],
+    "never": []
+  },
+  "network": {
+    "enabled": false,
+    "mode": "open",
+    "allowHosts": []
+  },
+  "secrets": {
+    "enabled": false,
+    "keepEnv": []
+  },
+  "sandbox": {
+    "enabled": false,
+    "backend": "none",
+    "image": null,
+    "network": true,
+    "extraMounts": []
+  },
+  "override": {
+    "mayNarrow": ["audit.redactEnvMatching", "hostexec.hostExecutingPatterns"],
+    "mayWiden": [],
+    "neverOverridable": ["level", "audit.enabled"]
+  },
+  "hostexec": {
+    "flagHostExecutingChanges": true,
+    "hostExecutingPatterns": []
+  }
+}

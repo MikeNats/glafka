@@ -1,0 +1,7 @@
+description = "Push the ticket's branch and open a PR"
+
+prompt = """
+Ticket: {{args}}
+
+Read docs/glafka/skills/epistle.md in this repo and follow it exactly.
+"""

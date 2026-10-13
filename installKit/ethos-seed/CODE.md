@@ -1,0 +1,6 @@
+- Use a named constant or an enum, never a bare literal repeated in more than one place.
+- Name things with plain, common words — a name that needs a paragraph to explain is the wrong name.
+- A comment says why, never what, and two lines is the limit.
+- Derive a type from its source of truth rather than restating it by hand.
+- Bad configuration stops the process at start-up, not on some rare code path later.
+- An error message says what to do next, not only what went wrong.

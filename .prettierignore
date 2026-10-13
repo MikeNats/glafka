@@ -1,0 +1,5 @@
+node_modules
+.worktrees
+.glafka-scratch
+package-lock.json
+dist

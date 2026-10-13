@@ -1,0 +1,26 @@
+# Kimi Code CLI has no auto-discovered agents directory (unlike Claude
+# Code's .claude/agents/) — this file has to be pointed at explicitly:
+#
+#   kimi --agent-file .kimi-code/agents/glafka-coder.yaml
+#
+# or registered under a `subagents:` entry in your own top-level agent
+# config, so `Agent(subagent_type="glafka-coder", ...)` resolves by name.
+# See docs/glafka/skills/ergon.md's cross-harness table for the invocation itself.
+version: 1
+agent:
+  name: glafka-coder
+  extend: default
+  system_prompt_path: ./glafka-coder-system.md
+  tools:
+    - 'kimi_cli.tools.shell:Shell'
+    - 'kimi_cli.tools.file:ReadFile'
+    - 'kimi_cli.tools.file:WriteFile'
+    - 'kimi_cli.tools.file:StrReplaceFile'
+    - 'kimi_cli.tools.file:Glob'
+    - 'kimi_cli.tools.file:Grep'
+    # Kimi's native skill loader. Without it the coder cannot run the skills
+    # its spawn prompt asks for.
+    - 'kimi_cli.tools.skill:Skill'
+  exclude_tools:
+    - 'kimi_cli.tools.web:SearchWeb'
+    - 'kimi_cli.tools.web:FetchURL'

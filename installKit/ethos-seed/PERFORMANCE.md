@@ -1,0 +1,3 @@
+- A request's query count must not depend on how many rows it returns; assert the count in a test.
+- Every list endpoint has a default limit.
+- A mutation that is not naturally safe to repeat takes an idempotency key.
