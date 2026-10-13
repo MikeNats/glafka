@@ -414,7 +414,8 @@ test('levels 3 and 4 still refuse an unreadable string outright', () => {
 // Every glafka command a PROMPT tells a caged agent to run. `psyche` was missing from the allow list,
 // so at level 2 and above a coder that followed the ethos instructions had its rule refused — ethos capture was silently dead in exactly the projects that turned guardrails on. It went unnoticed because the skills files use `node .glafka/bin/glafka.js <cmd>`, which passes as plain `node`, while the ethos block uses the bare `glafka` form. Keep this list in step with the prompt builders: aporia, psyche  → src/commands/ergon/prompts.ts, src/memory/ethos.ts krisis          → src/commands/ergon/prompts.ts (the reviewer's report-back)
 // epalitheusis → src/commands/epalitheusis/prompts.ts (the QA tester records each result)
-const AGENT_SUBCOMMANDS = ['aporia', 'krisis', 'psyche', 'epalitheusis'];
+// apofasi      → src/commands/ergon/prompts.ts (the coder records a decision)
+const AGENT_SUBCOMMANDS = ['aporia', 'krisis', 'psyche', 'epalitheusis', 'apofasi'];
 
 for (const level of [2, 3, 4]) {
   test(`level ${level}: every glafka command an agent is told to run is allowed`, () => {

@@ -35,7 +35,7 @@
     "prepublishOnly": "npm run typecheck && npm run check && npm test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

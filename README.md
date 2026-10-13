@@ -73,10 +73,11 @@ glafka lysis clean up
 
 - **Isolation** — every ticket gets its own git worktree, branch and ports.
   It can get its own database too.
-- **Almost no setup** — `odysse` reads your project once. It works out how to
-  run it: ports, database, dependencies, and how to check it. You approve what
-  it proposes. Every later ticket reuses it. You can change it by hand in
-  `isolation.json` (see [Per-ticket setup](#per-ticket-setup)).
+- **Almost no setup** — `odysse` reads your project once. It writes how to
+  run it: ports and database. You approve the rules and workspace settings it
+  proposes. `odysse --checks` finds how to check it. Every later ticket reuses
+  it. You can change it by hand in `isolation.json` (see
+  [Per-ticket setup](#per-ticket-setup)).
 - **Real checks** — glafka runs your project's own check command itself.
   It does not trust the agent's word.
 - **QA** — if the spec lists acceptance criteria, a fresh QA agent, with no
@@ -166,8 +167,8 @@ Terminal only (`glafka <command>`). The agent runs these in its own shell:
 | Command        | Greek meaning | What it does                                            |
 | -------------- | ------------- | ------------------------------------------------------- |
 | `poreia`       | the route     | Ticket status. No LLM. `--all` lists every open ticket. |
-| `logos`        | words         | The same status, written by an agent. Costs tokens.     |
-| `checks`       | (English)     | Run the ticket's checks and save the result.            |
+| `logos`        | words         | Same status, re-worded by the `reporter`. Costs tokens. |
+| `checks`       | (English)     | Run the checks. Saved only if all work is committed.    |
 | `krisis`       | judgement     | Record a review verdict: clean or blocking.             |
 | `epalitheusis` | verification  | Record a QA result for one acceptance criterion.        |
 | `aporia`       | being stuck   | The coder asks a person for help.                       |
@@ -198,8 +199,9 @@ Terminal only (`glafka <command>`). The agent runs these in its own shell:
 - Copilot gets `.github/skills/` and no `glafka-coder`.
 - Kimi gets `.kimi/skills/` and `.kimi-code/agents/`. Start Kimi with
   `kimi --agent-file .kimi-code/agents/glafka-coder.yaml` to use the coder.
-- Install does not overwrite a file unless its path contains "glafka". It
-  lists the files it skipped.
+- Install overwrites only glafka's own files: a path with a folder or file
+  named `glafka` or `.glafka`, or one that starts with `glafka-`. It lists the
+  files it skipped.
 - For each of `reviewer`, `reporter` (writes docs) and `verifier` (QA), install
   sends the agent CLI a test prompt. If it answers, the command is saved in
   `.glafka.json`.
@@ -230,7 +232,7 @@ up to 90 seconds each.
   or a database.
 - proposed conventions. Keep them with `glafka odysse --keep all|none|1,3`.
 - proposed workspace settings: base branch, install command, files to copy
-  in. Keep them with `glafka odysse --workspace-keep all|none|1,3`.
+  in, submodules. Keep them with `glafka odysse --workspace-keep all|none|1,3`.
 
 `glafka odysse --checks` reads the CI config, task runner and manifests, and
 finds the check command. It does not run it. It proposes one;
@@ -345,8 +347,9 @@ gone. It asks yes or no for each. With no terminal it only lists them;
    running app from outside: curl or the CLI. It records pass, fail or cannot
    per criterion, with evidence.
    - A fail → back to the coder, with what the tester saw.
-   - Cannot, a missing result, or an untrusted result → stops. This wins over
-     a fail.
+   - Cannot, a missing result, or code that changed during QA → stops. This
+     wins over a fail.
+   - A pass without this round's token → stops. A fail wins over it.
    - A pass on uncommitted files → stops. Commit them first.
 4. **Review.** A fresh reviewer reads the diff. Over 15 files or 800 changed
    lines, a second reviewer checks the structure.
@@ -356,7 +359,8 @@ gone. It asks yes or no for each. With no terminal it only lists them;
    - Clean only in the reviewer's text, or no verdict → stops.
 
 A coder sent back gets a note: the failed criteria, or else the reviewer's
-findings. After failed checks there is no note.
+findings. After failed checks, the note says nothing about the checks. It
+may repeat the last QA or review note.
 
 **Also stops for a person when:**
 
@@ -376,10 +380,10 @@ ticket's decisions.
 
 1. The session starts a `glafka-coder` subagent.
 2. When done, the coder runs `glafka ergon <id> --review` itself. This runs
-   the checks, then starts one separate process:
+   the checks, then starts the next agent in its own process:
    - AC in the spec → the QA agent. When QA passes,
      `glafka ergon <id> --review --status` starts the reviewer.
-   - no AC → the reviewer.
+   - no AC → the reviewer. A big diff gets two.
 3. The coder fixes what comes back, commits, and runs `--review` again.
 
 - No round limit in this mode.
@@ -407,11 +411,15 @@ count. At the limit, `vima` stops and asks a person.
 - an AC has not passed on this exact committed code.
 - the reviewer found a blocking problem.
 - `.env.glafka` is in the branch, or the rebase fails.
+- the worktree is not on the ticket's branch, or HEAD is detached.
+- something during the tidy-up committed more than the codebase map and the
+  ticket's docs, or rewrote the history.
 
 **`--unreviewed` skips these.** It is written on the ticket, and at the top
 of the PR when glafka opens it.
 
-- no review since the last code change.
+- no review since the last code change. A commit by hand counts. A commit
+  that changes only the codebase map or the ticket's docs does not.
 - no trusted clean verdict: none, a failed reviewer, or clean only in its
   text.
 - the review ran no checks. Or run `glafka checks <id>`, then `epistle` again.
@@ -432,6 +440,8 @@ glafka vima --all     # one step for every open ticket
 - The id is optional: the current folder, then the git branch, then the only
   open ticket. Otherwise it lists the open ids and stops.
 - `notifyCmd` runs once when a ticket is ready or needs a person.
+- A commit by hand after a clean review: "needs you". vima never pays for a
+  review of it.
 - `vima` runs get no persona.
 
 **Time limit** (`ergonTimeoutMs`, 60 minutes), checked on each step:
@@ -455,7 +465,8 @@ glafka vima --all     # one step for every open ticket
 
 - While the person brainstorms, plans or explores, the agent records stated
   preferences in their words: `glafka psyche <id> --code "<rule>"`. It can
-  propose rules of its own. The coder and reviewer record nothing.
+  propose rules of its own. The coder and reviewer are told not to record
+  rules. Nothing blocks them.
 - Every rule is a proposal. The person keeps or drops each after the review:
   `glafka ergon <id> --review --keep all|none|1,3`.
 - Kept rules go under `## Learned` in `docs/glafka/ethos/`. Hand-written
@@ -484,7 +495,7 @@ brainstorming, the coder's report, the reviewer's findings, `logos`. Not
   one again to turn it off. `--clear` turns all off.
 - Own personas: `docs/glafka/personas/<name>.md`. Same name as a shipped one
   wins.
-- Which one is on is saved per machine.
+- Which one is on is saved per project, in `.glafka/persona`.
 - The coder and reviewer prompts say: change the wording only, never the
   sections.
 
@@ -525,9 +536,11 @@ the base branch:
 | 3     | strict   | Only listed commands start. A list of allowed hosts.                          |
 | 4     | locked   | A real OS sandbox (docker or macOS). No network.                              |
 
-Level 2 is the one to use. Details:
+Level 0 is the default. It trusts the agent fully, so read every PR before you
+merge. Details on levels 1–4:
 
-- Level 2 blocks a fixed list (`git push`, `gh`, `ssh`…); other commands run.
+- Level 2 blocks a fixed list (`git push`, `gh`, `ssh`…) and some flags
+  (`node -e`, `python3 -c`, `npm -g`…). Other commands run.
   It refuses `>`. Level 3 also refuses `$VAR`, `$( )` and backticks, and
   denies anything not listed.
 - Level 2 keeps file edits and a few commands (`cp`, `mv`, `tee`…) in the
@@ -542,6 +555,8 @@ Level 2 is the one to use. Details:
 - From level 1: if the branch changed files that run on the host
   (`package.json`, `Makefile`, `*.sh`, CI workflows), checks do not run.
   Read them, then `epistle --unreviewed`.
+- At every level: if the branch changed `package.json` and there is no
+  `checksCmd`, its npm scripts do not run.
 - Each ticket pins a fingerprint of the rules. A changed level, or changed
   hook files in its worktree, blocks the ticket until
   `glafka guardrails --repin <id>`. Hooks installed later do not reach open
@@ -599,7 +614,7 @@ checked.
 | `checksTimeoutMs`        | `600000` (10 min)     | `checksCmd`.                                                    |
 | `e2eTimeoutMs`           | `600000` (10 min)     | `e2eCmd`.                                                       |
 | `bootstrapTimeoutMs`     | `900000` (15 min)     | Installing a worktree's dependencies.                           |
-| `isolationHookTimeoutMs` | `300000` (5 min)      | `setupCmd`, `seedCmd`, `e2e.setupCmd`.                          |
+| `isolationHookTimeoutMs` | `300000` (5 min)      | `setupCmd`, `seedCmd`, `e2e.setupCmd`, failed-setup teardown.   |
 
 - `workspace.*` keys live in `isolation.json`.
 - Foreground agents (the `reporter`, or `glafka ergon <id>` with a coder
@@ -637,11 +652,11 @@ checked.
 
 ### Ticket names
 
-- The id is the date (UTC) plus up to 40 characters of the idea:
+- The id is the date (UTC) plus the idea, cleaned and cut to 40 characters:
   `add dark mode to settings` → `2026-08-07-add-dark-mode-to-settings`.
 - The worktree (`.worktrees/<id>/`), branch (`glafka/<id>`) and docs use it.
-- Only `a-z` and `0-9` stay. Capitals become small letters. Anything else
-  becomes `-`.
+- Only `a-z` and `0-9` stay. Capitals become small letters. Each run of
+  other characters becomes one `-`. A `-` at the start or end is dropped.
 - The same name twice is refused. A closed or cancelled ticket keeps its name.
 - No Latin letters: `glafka create "φτιάξε το σύστημα" --name "fix the system"`.
 
@@ -692,15 +707,15 @@ is `src/types/ticket.ts`.
 
 ## Requirements
 
-- **Node.js 20** or newer.
+- **Node.js 22** or newer.
 - **git.** Your project must be a git repo with at least one commit.
 - **An agent CLI** on your `PATH`, for example Claude Code (`claude`).
   glafka starts it for the reviewer, the QA tester, doc updates and
   unattended runs.
 - **GitHub CLI** (`gh`), logged in, and a git remote named `origin`.
   You need them to open a PR, and to close a ticket that has a PR.
-- **The [Superpowers](https://github.com/obra/superpowers) skills.** The glafka
-  skills say which one to use at each step. In Claude Code, run:
+- **Optional: the [Superpowers](https://github.com/obra/superpowers) skills.**
+  The glafka skills say which one to use at each step. In Claude Code, run:
   `/plugin install superpowers@claude-plugins-official`
   For other agents, `glafka install` prints the command for yours.
 

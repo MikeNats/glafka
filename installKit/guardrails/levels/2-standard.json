@@ -129,7 +129,15 @@
       },
       {
         "cmd": "glafka",
-        "subcommands": ["aporia", "krisis", "epalitheusis", "psyche", "guardrails", "ergon"]
+        "subcommands": [
+          "aporia",
+          "krisis",
+          "epalitheusis",
+          "psyche",
+          "apofasi",
+          "guardrails",
+          "ergon"
+        ]
       }
     ],
     "never": [
