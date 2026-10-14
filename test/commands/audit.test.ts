@@ -255,6 +255,7 @@ test('a tool line names the command, not just the op', () => {
       tokensCacheRead: null,
       tokensCacheWrite: null,
       runsWithTokens: 0,
+      runsWithCache: 0,
       denied: 1,
     },
   };

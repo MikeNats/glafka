@@ -317,8 +317,9 @@ test('totals add up cache reads and cache writes', () => {
   assert.equal(totals.tokensCacheWrite, 9134);
 });
 
-// A row saved before the cache fields existed was measured, so it adds 0, not null.
-test('an old row with tokens but no cache fields adds 0 to the cache totals', () => {
+// A row saved before the cache fields existed had cache too; nobody recorded it.
+// It is left out of the cache totals and counted apart, never added as a measured 0.
+test('an old row with tokens but no cache fields is left out of the cache totals', () => {
   const stateDir = makeTempDir('cache-old');
   const repoRoot = makeTempDir('repo');
   appendRunRecord(stateDir, ID, run('2026-08-07T10:01:00.000Z'));
@@ -328,6 +329,21 @@ test('an old row with tokens but no cache fields adds 0 to the cache totals', ()
 
   assert.equal(totals.tokensCacheRead, 20480);
   assert.equal(totals.tokensCacheWrite, 4567);
+  assert.equal(totals.runsWithTokens, 2);
+  assert.equal(totals.runsWithCache, 1);
+});
+
+test('cache totals are null, not zero, when only old rows were measured', () => {
+  const stateDir = makeTempDir('cache-all-old');
+  const repoRoot = makeTempDir('repo');
+  appendRunRecord(stateDir, ID, run('2026-08-07T10:01:00.000Z'));
+
+  const { totals } = readAudit({ stateDir, repoRoot, ticketId: ID });
+
+  assert.notEqual(totals.tokensIn, null);
+  assert.equal(totals.tokensCacheRead, null);
+  assert.equal(totals.tokensCacheWrite, null);
+  assert.equal(totals.runsWithCache, 0);
 });
 
 test('cache totals are null, not zero, when no run had tokens measured', () => {

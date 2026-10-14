@@ -34,6 +34,8 @@ export interface AuditReport {
     // How many of `runs` contributed a token count, so a partial total
     // cannot pass itself off as a complete one.
     runsWithTokens: number;
+    // How many of the measured runs recorded cache. Older rows did not.
+    runsWithCache: number;
     // Null when guardrails was not watching. "0 denied" there reads as
     // "nothing was blocked", when the truth is that nobody was looking.
     denied: number | null;
@@ -80,10 +82,16 @@ export function readAudit({
   };
 }
 
+// True when the run recorded its cache tokens. Rows saved before that have neither field.
+function hasCache(tokens: RunRecord['tokens']): boolean {
+  return tokens !== null && (tokens.cacheRead !== undefined || tokens.cacheWrite !== undefined);
+}
+
 // Null tokens are unmeasured, so they add nothing. They must never be
 // counted as a measured zero.
 function totalsOf(runs: RunRecord[], denied: number | null): AuditReport['totals'] {
   const measured = runs.filter((r) => r.tokens !== null);
+  const cached = measured.filter((r) => hasCache(r.tokens));
   const timed = runs.filter((r) => r.durationMs !== null);
   return {
     runs: runs.length,
@@ -93,16 +101,14 @@ function totalsOf(runs: RunRecord[], denied: number | null): AuditReport['totals
     // records follow.
     tokensIn: measured.length === 0 ? null : measured.reduce((sum, r) => sum + r.tokens!.in, 0),
     tokensOut: measured.length === 0 ? null : measured.reduce((sum, r) => sum + r.tokens!.out, 0),
-    // A row from before the cache fields was still measured, so it adds 0.
+    // A row from before the cache fields had cache too; nobody recorded it. Leave it out
+    // and count apart, so an unrecorded cache never reads as a measured 0.
     tokensCacheRead:
-      measured.length === 0
-        ? null
-        : measured.reduce((sum, r) => sum + (r.tokens!.cacheRead ?? 0), 0),
+      cached.length === 0 ? null : cached.reduce((sum, r) => sum + (r.tokens!.cacheRead ?? 0), 0),
     tokensCacheWrite:
-      measured.length === 0
-        ? null
-        : measured.reduce((sum, r) => sum + (r.tokens!.cacheWrite ?? 0), 0),
+      cached.length === 0 ? null : cached.reduce((sum, r) => sum + (r.tokens!.cacheWrite ?? 0), 0),
     runsWithTokens: measured.length,
+    runsWithCache: cached.length,
     denied,
   };
 }
@@ -117,6 +123,8 @@ export interface AuditSummaryRow {
   tokensCacheRead: number | null;
   tokensCacheWrite: number | null;
   runsWithTokens: number;
+  // How many of the measured runs recorded cache. Older rows did not.
+  runsWithCache: number;
   denied: number | null;
 }
 
@@ -136,6 +144,8 @@ export interface AuditSummary {
     tokensCacheRead: number | null;
     tokensCacheWrite: number | null;
     runsWithTokens: number;
+    // How many of the measured runs recorded cache. Older rows did not.
+    runsWithCache: number;
   }[];
 }
 
@@ -153,6 +163,7 @@ interface RoleSum {
   cacheRead: number;
   cacheWrite: number;
   measured: number;
+  cached: number;
 }
 
 // Adds one run event to its role's sums.
@@ -167,6 +178,7 @@ function addToRole(roles: Map<string, RoleSum>, event: AuditEvent): void {
     cacheRead: 0,
     cacheWrite: 0,
     measured: 0,
+    cached: 0,
   };
   const used = event.tokens as RunRecord['tokens'];
   sum.runs += 1;
@@ -181,9 +193,12 @@ function addToRole(roles: Map<string, RoleSum>, event: AuditEvent): void {
   if (used !== null) {
     sum.in += used.in;
     sum.out += used.out;
-    sum.cacheRead += used.cacheRead ?? 0;
-    sum.cacheWrite += used.cacheWrite ?? 0;
     sum.measured += 1;
+  }
+  if (hasCache(used)) {
+    sum.cacheRead += used!.cacheRead ?? 0;
+    sum.cacheWrite += used!.cacheWrite ?? 0;
+    sum.cached += 1;
   }
   roles.set(role, sum);
 }
@@ -222,9 +237,10 @@ export function readAuditSummary({
         runsWithDuration: s.timed,
         tokensIn: s.measured === 0 ? null : s.in,
         tokensOut: s.measured === 0 ? null : s.out,
-        tokensCacheRead: s.measured === 0 ? null : s.cacheRead,
-        tokensCacheWrite: s.measured === 0 ? null : s.cacheWrite,
+        tokensCacheRead: s.cached === 0 ? null : s.cacheRead,
+        tokensCacheWrite: s.cached === 0 ? null : s.cacheWrite,
         runsWithTokens: s.measured,
+        runsWithCache: s.cached,
       }))
       // Unmeasured sorts last: it is not the smallest, it is unknown.
       .sort((a, b) => (b.durationMs ?? -1) - (a.durationMs ?? -1)),
