@@ -1,17 +1,19 @@
 import { vima, vimaAll, vimaRestart, vimaRestartAll } from '../../../src/commands/vima/vima.js';
-import type { VimaConfig } from '../../../src/commands/vima/utils.js';
+import type { VimaConfig, VimaResult } from '../../../src/commands/vima/utils.js';
 import { assertKnownFlags, positionalId } from '../cli/args.js';
+import { printJson } from '../cli/json.js';
 import { resolveTicketId } from '../../../src/ticket/resolve.js';
 
 // Moves a ticket one step forward. Safe to run on a timer. It never pushes and never closes a
 // ticket. Every flag this command reads. Anything else is a typo, and a typo used to be silently
 // ignored — sometimes into a different action entirely.
-const VIMA_FLAGS = ['--all', '--restart'];
+const VIMA_FLAGS = ['--all', '--restart', '--json'];
 const VIMA_USAGE =
-  'usage: glafka vima <ticket-id>\n' +
-  '       glafka vima --all                   advance every open ticket by one step\n' +
+  'usage: glafka vima <ticket-id> [--json]\n' +
+  '       glafka vima --all [--json]          advance every open ticket by one step\n' +
   "       glafka vima <ticket-id> --restart   start this ticket's app again\n" +
-  "       glafka vima --all --restart         start every open ticket's app again";
+  "       glafka vima --all --restart         start every open ticket's app again\n" +
+  '       --json                              print the results as one JSON document';
 
 export async function runVima({
   args,
@@ -25,11 +27,22 @@ export async function runVima({
   config: VimaConfig;
 }): Promise<void> {
   assertKnownFlags(args, VIMA_FLAGS, VIMA_USAGE);
-  async function advanceAllTickets(): Promise<void> {
-    const results = await vimaAll({ stateDir, repoRoot, config });
+  const json = args.includes('--json');
+  // A restart reports on stderr as it goes, so there is no one result to print.
+  if (json && args.includes('--restart')) {
+    throw new Error(`--json is not supported with --restart\n\n${VIMA_USAGE}`);
+  }
+
+  function printResults(results: VimaResult[]): void {
+    if (json) return printJson({ results });
     for (const result of results) {
       console.log(`${result.id}  ${result.action}${result.reason ? `  — ${result.reason}` : ''}`);
     }
+  }
+
+  async function advanceAllTickets(): Promise<void> {
+    const results = await vimaAll({ stateDir, repoRoot, config });
+    printResults(results);
     // Exit code 1 tells the timer that something needs your attention.
     const failed = results.filter((result) => result.action === 'error');
     if (failed.length > 0) {
@@ -44,8 +57,7 @@ export async function runVima({
     // No id typed: work it out. After a clear nobody remembers the id, and
     // that friction is what kept people in the old session.
     const id = args.find((arg) => !arg.startsWith('--')) ?? resolveTicketId({ stateDir, repoRoot });
-    const result = await vima({ stateDir, id, repoRoot, config });
-    console.log(`${result.id}  ${result.action}${result.reason ? `  — ${result.reason}` : ''}`);
+    printResults([await vima({ stateDir, id, repoRoot, config })]);
   }
 
   // What the advice printed by a failed start tells you to run. It never
