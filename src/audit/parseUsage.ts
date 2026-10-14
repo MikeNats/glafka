@@ -3,6 +3,10 @@ import path from 'node:path';
 export interface Usage {
   in: number;
   out: number;
+  // Input served from, and written to, the prompt cache. Claude counts these
+  // apart from input_tokens, so without them most of the input was missing.
+  cacheRead: number;
+  cacheWrite: number;
   source: string;
 }
 
@@ -19,7 +23,7 @@ export function parseUsage(output: string | null): Usage | null {
   if (found.length === 0) return null;
 
   const result = found.find((u) => u.kind === 'result');
-  if (result) return { in: result.in, out: result.out, source: result.source };
+  if (result) return { ...counts(result), source: result.source };
 
   // No result line. A block that named itself something else — an assistant
   // message — is one turn of a stream the agent never finished, so it is a
@@ -27,7 +31,16 @@ export function parseUsage(output: string | null): Usage | null {
   // that IS the run.
   const last = found[found.length - 1]!;
   const source = last.kind === null ? last.source : `${last.source}-partial`;
-  return { in: last.in, out: last.out, source };
+  return { ...counts(last), source };
+}
+
+function counts(u: Usage): Omit<Usage, 'source'> {
+  return { in: u.in, out: u.out, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite };
+}
+
+// 0 when missing: an agent that reports no cache field used no cache.
+function cacheCount(value: unknown): number {
+  return typeof value === 'number' ? value : 0;
 }
 
 // One line, or null. Anything unreadable is null rather than a guess: a wrong
@@ -48,11 +61,18 @@ function usageOf(line: string): (Usage & { kind: string | null }) | null {
   const usage = (parsed as { usage?: unknown }).usage;
   if (!usage || typeof usage !== 'object') return null;
 
-  const { input_tokens: input, output_tokens: outputTokens } = usage as Record<string, unknown>;
+  const {
+    input_tokens: input,
+    output_tokens: outputTokens,
+    cache_read_input_tokens: cacheRead,
+    cache_creation_input_tokens: cacheWrite,
+  } = usage as Record<string, unknown>;
   if (typeof input !== 'number' || typeof outputTokens !== 'number') return null;
   return {
     in: input,
     out: outputTokens,
+    cacheRead: cacheCount(cacheRead),
+    cacheWrite: cacheCount(cacheWrite),
     source: 'claude-json',
     kind:
       typeof (parsed as { type?: unknown }).type === 'string'

@@ -41,7 +41,7 @@ test('a finished run is recorded with what we measured', () => {
   assert.equal(rec!.agent, 'claude');
   assert.equal(rec!.exitCode, 0);
   assert.equal(rec!.promptBytes, 1234);
-  assert.deepEqual(rec!.tokens, { in: 900, out: 30 });
+  assert.deepEqual(rec!.tokens, { in: 900, out: 30, cacheRead: 0, cacheWrite: 0 });
   assert.equal(rec!.responseBytes, Buffer.byteLength(usage));
   assert.ok(rec!.durationMs !== null && rec!.durationMs >= 0);
 });
@@ -129,8 +129,38 @@ test('a finished background run is reconstructed from what is on disk', () => {
   assert.equal(rec!.exitCode, 0);
   assert.equal(rec!.at, new Date(startedAt).toISOString());
   assert.ok(rec!.durationMs! >= 5000);
-  assert.deepEqual(rec!.tokens, { in: 500, out: 40 });
+  assert.deepEqual(rec!.tokens, { in: 500, out: 40, cacheRead: 0, cacheWrite: 0 });
   assert.equal(rec!.responseBytes, Buffer.byteLength(usage));
+});
+
+// A real stream-json result line. Most of its input is in the cache fields.
+const REAL_RESULT_LINE =
+  '{"type":"result","subtype":"success","is_error":false,"duration_ms":2300,"num_turns":1,' +
+  '"result":"ok","session_id":"0b6c7a8e-1111-2222-3333-444455556666","total_cost_usd":0.0123,' +
+  '"usage":{"input_tokens":12,"cache_creation_input_tokens":4567,"cache_read_input_tokens":20480,' +
+  '"output_tokens":310}}';
+
+test('a run saves its cache reads and writes, not only input and output', () => {
+  const stateDir = makeTempDir('run');
+
+  begin(stateDir).finish({ exitCode: 0, output: `starting\n${REAL_RESULT_LINE}\n` });
+
+  const [rec] = readRunRecords(stateDir, ID);
+  assert.deepEqual(rec!.tokens, { in: 12, out: 310, cacheRead: 20480, cacheWrite: 4567 });
+});
+
+test('a background run saves its cache reads and writes too', () => {
+  const stateDir = makeTempDir('run');
+  writeRunFiles(stateDir, ID, 'coder', {
+    log: REAL_RESULT_LINE,
+    startedAt: Date.now(),
+    exitCode: 0,
+  });
+
+  recordBackgroundRun({ stateDir, ticketId: ID, role: 'coder', enabled: true });
+
+  const [rec] = readRunRecords(stateDir, ID);
+  assert.deepEqual(rec!.tokens, { in: 12, out: 310, cacheRead: 20480, cacheWrite: 4567 });
 });
 
 // A reviewer's outcome is filed under 'review', not 'ergon'.

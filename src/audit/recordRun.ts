@@ -1,12 +1,18 @@
 import fs from 'node:fs';
-import { appendRunRecord, AUDIT_STAGES, type AuditStage } from './record.js';
+import { appendRunRecord, AUDIT_STAGES, type AuditStage, type RunRecord } from './record.js';
 import { ROLES, type Role } from '../types/ticket.js';
-import { parseUsage, agentName, SESSION_AGENT } from './parseUsage.js';
+import { parseUsage, agentName, SESSION_AGENT, type Usage } from './parseUsage.js';
 import { logTail } from './logTail.js';
 import { runFiles } from '../ticket/paths.js';
 
 export interface RunHandle {
   finish(result: { exitCode: number | null; output: string | null }): void;
+}
+
+// What a run row saves of the usage. Null when nothing was measured.
+function tokensOf(usage: Usage | null): RunRecord['tokens'] {
+  if (!usage) return null;
+  return { in: usage.in, out: usage.out, cacheRead: usage.cacheRead, cacheWrite: usage.cacheWrite };
 }
 
 // Nothing to write to, or switched off. A handle that does nothing keeps
@@ -50,7 +56,7 @@ export function startRun({
         promptBytes,
         // Null, not 0: output we never saw is unmeasured, not empty.
         responseBytes: output === null ? null : Buffer.byteLength(output),
-        tokens: usage ? { in: usage.in, out: usage.out } : null,
+        tokens: tokensOf(usage),
         tokenSource: usage?.source ?? null,
       });
       // This run has run files, so the close would record it a second time
@@ -172,7 +178,7 @@ export function recordBackgroundRun({
     exitCode: fs.existsSync(assumedExitPath) ? null : numberOrNull(exitCodePath),
     promptBytes: sizeOr(promptPath),
     responseBytes: output === null ? null : Buffer.byteLength(output),
-    tokens: usage ? { in: usage.in, out: usage.out } : null,
+    tokens: tokensOf(usage),
     tokenSource: usage?.source ?? null,
   });
 }

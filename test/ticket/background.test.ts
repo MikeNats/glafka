@@ -143,7 +143,7 @@ test('markOutcomeRecorded with observability on files a real audit record', asyn
   assert.equal(rec!.stage, 'ergon');
   assert.equal(rec!.agent, 'printf');
   assert.equal(rec!.exitCode, 0);
-  assert.deepEqual(rec!.tokens, { in: 12, out: 3 });
+  assert.deepEqual(rec!.tokens, { in: 12, out: 3, cacheRead: 0, cacheWrite: 0 });
 });
 
 // The default: a caller that has not been updated to pass observability must

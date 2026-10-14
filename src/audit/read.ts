@@ -12,9 +12,9 @@ export interface AuditEvent {
 }
 
 export interface AuditReport {
-  // 2: totals became nullable and gained the runsWith* counts. A reader
-  // written against 1 would plot an unmeasured total as zero.
-  schema: 2;
+  // 3: totals gained the cache token counts. A reader written against 2
+  // took tokensIn as all the input, and it was missing the cached part.
+  schema: 3;
   ticket: string | null;
   sources: { runs: boolean; stages: boolean; tools: boolean };
   // The guardrails log rolls at 8MB. When it has, its oldest calls are gone.
@@ -28,6 +28,9 @@ export interface AuditReport {
     // would report an unmeasured ticket as a free one.
     tokensIn: number | null;
     tokensOut: number | null;
+    // Input read from, and written to, the prompt cache. Same null rule.
+    tokensCacheRead: number | null;
+    tokensCacheWrite: number | null;
     // How many of `runs` contributed a token count, so a partial total
     // cannot pass itself off as a complete one.
     runsWithTokens: number;
@@ -67,7 +70,7 @@ export function readAudit({
   ].sort((a, b) => a.at.localeCompare(b.at));
 
   return {
-    schema: 2,
+    schema: 3,
     ticket: ticketId,
     sources: { runs: runs.length > 0, stages: stages.length > 0, tools: policy.audit.enabled },
     toolsPartial,
@@ -90,6 +93,15 @@ function totalsOf(runs: RunRecord[], denied: number | null): AuditReport['totals
     // records follow.
     tokensIn: measured.length === 0 ? null : measured.reduce((sum, r) => sum + r.tokens!.in, 0),
     tokensOut: measured.length === 0 ? null : measured.reduce((sum, r) => sum + r.tokens!.out, 0),
+    // A row from before the cache fields was still measured, so it adds 0.
+    tokensCacheRead:
+      measured.length === 0
+        ? null
+        : measured.reduce((sum, r) => sum + (r.tokens!.cacheRead ?? 0), 0),
+    tokensCacheWrite:
+      measured.length === 0
+        ? null
+        : measured.reduce((sum, r) => sum + (r.tokens!.cacheWrite ?? 0), 0),
     runsWithTokens: measured.length,
     denied,
   };
@@ -102,12 +114,15 @@ export interface AuditSummaryRow {
   runsWithDuration: number;
   tokensIn: number | null;
   tokensOut: number | null;
+  tokensCacheRead: number | null;
+  tokensCacheWrite: number | null;
   runsWithTokens: number;
   denied: number | null;
 }
 
 export interface AuditSummary {
-  schema: 2;
+  // 3: rows and roles gained the cache token counts, as in AuditReport.
+  schema: 3;
   tickets: AuditSummaryRow[];
   byRole: {
     role: string;
@@ -118,6 +133,8 @@ export interface AuditSummary {
     // its tokens measured.
     tokensIn: number | null;
     tokensOut: number | null;
+    tokensCacheRead: number | null;
+    tokensCacheWrite: number | null;
     runsWithTokens: number;
   }[];
 }
@@ -125,6 +142,51 @@ export interface AuditSummary {
 // What a repo-level run is filed under: a scan or a report belongs to no
 // ticket. Same word guardrails uses for the same case.
 export const NO_TICKET = 'no-ticket';
+
+// One role's running sums across every ticket.
+interface RoleSum {
+  runs: number;
+  durationMs: number;
+  timed: number;
+  in: number;
+  out: number;
+  cacheRead: number;
+  cacheWrite: number;
+  measured: number;
+}
+
+// Adds one run event to its role's sums.
+function addToRole(roles: Map<string, RoleSum>, event: AuditEvent): void {
+  const role = String(event.role);
+  const sum = roles.get(role) ?? {
+    runs: 0,
+    durationMs: 0,
+    timed: 0,
+    in: 0,
+    out: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    measured: 0,
+  };
+  const used = event.tokens as RunRecord['tokens'];
+  sum.runs += 1;
+  // Same rule as the tokens below: an unmeasured run adds nothing and
+  // is counted, so a partial total cannot read as a complete one.
+  if (event.durationMs !== null) {
+    sum.durationMs += event.durationMs as number;
+    sum.timed += 1;
+  }
+  // Only measured runs move the token sum, and we count them so a
+  // partial total cannot read as a complete one.
+  if (used !== null) {
+    sum.in += used.in;
+    sum.out += used.out;
+    sum.cacheRead += used.cacheRead ?? 0;
+    sum.cacheWrite += used.cacheWrite ?? 0;
+    sum.measured += 1;
+  }
+  roles.set(role, sum);
+}
 
 // Every ticket that has a record, open or closed, plus the repo-level runs.
 // Seven runs on one ticket is the waste signal, and it only shows up side by side.
@@ -136,10 +198,7 @@ export function readAuditSummary({
   repoRoot: string;
 }): AuditSummary {
   const tickets: AuditSummaryRow[] = [];
-  const roles = new Map<
-    string,
-    { runs: number; durationMs: number; timed: number; in: number; out: number; measured: number }
-  >();
+  const roles = new Map<string, RoleSum>();
 
   // null is the repo-level record — scans, reports, compaction passes. It is
   // real spend, and without it here nothing could ever read it back.
@@ -147,39 +206,13 @@ export function readAuditSummary({
     const report = readAudit({ stateDir, repoRoot, ticketId: id });
     if (report.totals.runs === 0) continue;
     tickets.push({ ticket: id ?? NO_TICKET, ...report.totals });
-
     for (const event of report.events) {
-      if (event.kind !== 'run') continue;
-      const role = String(event.role);
-      const sum = roles.get(role) ?? {
-        runs: 0,
-        durationMs: 0,
-        timed: 0,
-        in: 0,
-        out: 0,
-        measured: 0,
-      };
-      const used = event.tokens as { in: number; out: number } | null;
-      sum.runs += 1;
-      // Same rule as the tokens below: an unmeasured run adds nothing and
-      // is counted, so a partial total cannot read as a complete one.
-      if (event.durationMs !== null) {
-        sum.durationMs += event.durationMs as number;
-        sum.timed += 1;
-      }
-      // Only measured runs move the token sum, and we count them so a
-      // partial total cannot read as a complete one.
-      if (used !== null) {
-        sum.in += used.in;
-        sum.out += used.out;
-        sum.measured += 1;
-      }
-      roles.set(role, sum);
+      if (event.kind === 'run') addToRole(roles, event);
     }
   }
 
   return {
-    schema: 2,
+    schema: 3,
     tickets: tickets.sort((a, b) => a.ticket.localeCompare(b.ticket)),
     byRole: [...roles.entries()]
       .map(([role, s]) => ({
@@ -189,6 +222,8 @@ export function readAuditSummary({
         runsWithDuration: s.timed,
         tokensIn: s.measured === 0 ? null : s.in,
         tokensOut: s.measured === 0 ? null : s.out,
+        tokensCacheRead: s.measured === 0 ? null : s.cacheRead,
+        tokensCacheWrite: s.measured === 0 ? null : s.cacheWrite,
         runsWithTokens: s.measured,
       }))
       // Unmeasured sorts last: it is not the smallest, it is unknown.

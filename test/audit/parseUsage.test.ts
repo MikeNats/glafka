@@ -8,7 +8,13 @@ test('claude --output-format json usage is read', () => {
     usage: { input_tokens: 48000, output_tokens: 6200 },
   });
 
-  assert.deepEqual(parseUsage(out), { in: 48000, out: 6200, source: 'claude-json' });
+  assert.deepEqual(parseUsage(out), {
+    in: 48000,
+    out: 6200,
+    cacheRead: 0,
+    cacheWrite: 0,
+    source: 'claude-json',
+  });
 });
 
 // Agents print prose around their JSON, and stream-json prints one object
@@ -17,7 +23,13 @@ test('the usage block is found even with prose or many lines around it', () => {
   const line = JSON.stringify({ usage: { input_tokens: 10, output_tokens: 2 } });
   const out = `starting up\n${JSON.stringify({ type: 'assistant' })}\n${line}\nbye\n`;
 
-  assert.deepEqual(parseUsage(out), { in: 10, out: 2, source: 'claude-json' });
+  assert.deepEqual(parseUsage(out), {
+    in: 10,
+    out: 2,
+    cacheRead: 0,
+    cacheWrite: 0,
+    source: 'claude-json',
+  });
 });
 
 // null is "we did not measure", and must never be mistaken for zero.
@@ -47,7 +59,13 @@ test('the result line wins over the per-message usage before it', () => {
     '{"type":"result","usage":{"input_tokens":81000,"output_tokens":2400}}',
   ].join('\n');
 
-  assert.deepEqual(parseUsage(out), { in: 81000, out: 2400, source: 'claude-json' });
+  assert.deepEqual(parseUsage(out), {
+    in: 81000,
+    out: 2400,
+    cacheRead: 0,
+    cacheWrite: 0,
+    source: 'claude-json',
+  });
 });
 
 // An agent that died before its result line leaves only a part of the story.
@@ -55,5 +73,42 @@ test('the result line wins over the per-message usage before it', () => {
 test('usage with no result line is reported as partial, not as a total', () => {
   const out = '{"type":"assistant","usage":{"input_tokens":41000,"output_tokens":1500}}';
 
-  assert.deepEqual(parseUsage(out), { in: 41000, out: 1500, source: 'claude-json-partial' });
+  assert.deepEqual(parseUsage(out), {
+    in: 41000,
+    out: 1500,
+    cacheRead: 0,
+    cacheWrite: 0,
+    source: 'claude-json-partial',
+  });
+});
+
+// A real stream-json result line. Most of the input sits in the two cache
+// fields, so reading only input_tokens under-counted it by a factor of 2000.
+const REAL_RESULT_LINE =
+  '{"type":"result","subtype":"success","is_error":false,"duration_ms":2300,"num_turns":1,' +
+  '"result":"ok","session_id":"0b6c7a8e-1111-2222-3333-444455556666","total_cost_usd":0.0123,' +
+  '"usage":{"input_tokens":12,"cache_creation_input_tokens":4567,"cache_read_input_tokens":20480,' +
+  '"output_tokens":310}}';
+
+test('cache reads and cache writes are read off a real result line', () => {
+  assert.deepEqual(parseUsage(REAL_RESULT_LINE), {
+    in: 12,
+    out: 310,
+    cacheRead: 20480,
+    cacheWrite: 4567,
+    source: 'claude-json',
+  });
+});
+
+test('a cache field that is not a number counts as 0, not as a broken line', () => {
+  const out =
+    '{"type":"result","usage":{"input_tokens":5,"output_tokens":1,"cache_read_input_tokens":"x"}}';
+
+  assert.deepEqual(parseUsage(out), {
+    in: 5,
+    out: 1,
+    cacheRead: 0,
+    cacheWrite: 0,
+    source: 'claude-json',
+  });
 });

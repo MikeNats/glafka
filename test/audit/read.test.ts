@@ -145,7 +145,7 @@ test('a ticket with nothing recorded reports empty, not an error', () => {
 
   assert.deepEqual(report.events, []);
   assert.equal(report.sources.runs, false);
-  assert.equal(report.schema, 2);
+  assert.equal(report.schema, 3);
 });
 
 // THE POINT: a closed ticket's record lives under tickets/closed/, not
@@ -298,4 +298,74 @@ test('denied is a real count once guardrails is watching', () => {
   appendRunRecord(stateDir, ID, run('2026-08-07T10:01:00.000Z'));
 
   assert.equal(readAudit({ stateDir, repoRoot, ticketId: ID }).totals.denied, 0);
+});
+
+// --------------------------------------------------------------------------- Cache tokens.
+// Claude counts cached input apart from input_tokens, so a total without it is far too low.
+
+const CACHED = { in: 12, out: 310, cacheRead: 20480, cacheWrite: 4567 };
+
+test('totals add up cache reads and cache writes', () => {
+  const stateDir = makeTempDir('cache');
+  const repoRoot = makeTempDir('repo');
+  appendRunRecord(stateDir, ID, run('2026-08-07T10:01:00.000Z', { tokens: CACHED }));
+  appendRunRecord(stateDir, ID, run('2026-08-07T10:05:00.000Z', { tokens: CACHED }));
+
+  const { totals } = readAudit({ stateDir, repoRoot, ticketId: ID });
+
+  assert.equal(totals.tokensCacheRead, 40960);
+  assert.equal(totals.tokensCacheWrite, 9134);
+});
+
+// A row saved before the cache fields existed was measured, so it adds 0, not null.
+test('an old row with tokens but no cache fields adds 0 to the cache totals', () => {
+  const stateDir = makeTempDir('cache-old');
+  const repoRoot = makeTempDir('repo');
+  appendRunRecord(stateDir, ID, run('2026-08-07T10:01:00.000Z'));
+  appendRunRecord(stateDir, ID, run('2026-08-07T10:05:00.000Z', { tokens: CACHED }));
+
+  const { totals } = readAudit({ stateDir, repoRoot, ticketId: ID });
+
+  assert.equal(totals.tokensCacheRead, 20480);
+  assert.equal(totals.tokensCacheWrite, 4567);
+});
+
+test('cache totals are null, not zero, when no run had tokens measured', () => {
+  const stateDir = makeTempDir('cache-null');
+  const repoRoot = makeTempDir('repo');
+  appendRunRecord(
+    stateDir,
+    ID,
+    run('2026-08-07T10:01:00.000Z', { tokens: null, tokenSource: null }),
+  );
+
+  const { totals } = readAudit({ stateDir, repoRoot, ticketId: ID });
+
+  assert.equal(totals.tokensCacheRead, null);
+  assert.equal(totals.tokensCacheWrite, null);
+});
+
+test('the summary carries cache totals per ticket and per role', () => {
+  const stateDir = makeTempDir('cache-sum');
+  const repoRoot = makeTempDir('repo');
+  appendRunRecord(stateDir, ID, run('2026-08-07T10:01:00.000Z', { tokens: CACHED }));
+  appendRunRecord(stateDir, OTHER, run('2026-08-07T11:01:00.000Z', { tokens: CACHED }));
+  appendRunRecord(
+    stateDir,
+    OTHER,
+    run('2026-08-07T11:05:00.000Z', { role: ROLES.REVIEWER, tokens: null, tokenSource: null }),
+  );
+
+  const summary = readAuditSummary({ stateDir, repoRoot });
+
+  assert.equal(summary.schema, 3);
+  const row = summary.tickets.find((t) => t.ticket === ID)!;
+  assert.equal(row.tokensCacheRead, 20480);
+  assert.equal(row.tokensCacheWrite, 4567);
+  const coder = summary.byRole.find((r) => r.role === 'coder')!;
+  assert.equal(coder.tokensCacheRead, 40960);
+  assert.equal(coder.tokensCacheWrite, 9134);
+  const reviewer = summary.byRole.find((r) => r.role === 'reviewer')!;
+  assert.equal(reviewer.tokensCacheRead, null);
+  assert.equal(reviewer.tokensCacheWrite, null);
 });

@@ -174,7 +174,7 @@ test('an agent that reports its usage has its tokens recorded', async () => {
   });
 
   const [rec] = readRunRecords(stateDir, null);
-  assert.deepEqual(rec!.tokens, { in: 1200, out: 340 });
+  assert.deepEqual(rec!.tokens, { in: 1200, out: 340, cacheRead: 0, cacheWrite: 0 });
   assert.equal(rec!.responseBytes, Buffer.byteLength(`${line}\n`));
 });
 

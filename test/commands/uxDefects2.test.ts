@@ -770,7 +770,7 @@ test('logos records the reporter call as an audit run', async () => {
   const [rec] = readRunRecords(stateDir, null);
   assert.equal(rec!.stage, 'logos');
   assert.equal(rec!.role, 'reporter');
-  assert.deepEqual(rec!.tokens, { in: 20, out: 5 });
+  assert.deepEqual(rec!.tokens, { in: 20, out: 5, cacheRead: 0, cacheWrite: 0 });
 });
 
 test('the README documents the reporter role', () => {

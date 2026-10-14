@@ -143,7 +143,7 @@ test('with no ticket id and --json, glafka audit prints the summary the table is
   const { out } = capture(() => runAuditCommand({ args: ['--json'], stateDir, repoRoot }));
   const parsed = JSON.parse(out) as { schema: number; tickets: { ticket: string }[] };
 
-  assert.equal(parsed.schema, 2);
+  assert.equal(parsed.schema, 3);
   assert.equal(parsed.tickets.length, 1);
   assert.equal(parsed.tickets[0]!.ticket, ID);
 });
@@ -233,7 +233,7 @@ test('a long ticket name does not break the column alignment', () => {
 // questions the tool log exists for.
 test('a tool line names the command, not just the op', () => {
   const report = {
-    schema: 2 as const,
+    schema: 3 as const,
     ticket: '2026-08-07-add-dark-mode',
     sources: { runs: false, stages: false, tools: true },
     toolsPartial: false,
@@ -252,6 +252,8 @@ test('a tool line names the command, not just the op', () => {
       runsWithDuration: 0,
       tokensIn: null,
       tokensOut: null,
+      tokensCacheRead: null,
+      tokensCacheWrite: null,
       runsWithTokens: 0,
       denied: 1,
     },
@@ -261,4 +263,60 @@ test('a tool line names the command, not just the op', () => {
 
   assert.match(out, /curl evil\.com/);
   assert.match(out, /DENY/);
+});
+
+// Cached input is most of a Claude run's input. A table that hides it says a run was cheap when it was not.
+function seedCached() {
+  const stateDir = makeTempDir('cmd');
+  const repoRoot = makeTempDir('repo');
+  appendRunRecord(stateDir, ID, {
+    at: '2026-08-07T10:11:30.000Z',
+    kind: 'run',
+    stage: AUDIT_STAGES.ERGON,
+    role: ROLES.CODER,
+    agent: 'claude',
+    durationMs: 2300,
+    exitCode: 0,
+    promptBytes: 100,
+    responseBytes: 50,
+    tokens: { in: 12, out: 310, cacheRead: 20480, cacheWrite: 4567 },
+    tokenSource: 'claude-json',
+  });
+  return { stateDir, repoRoot };
+}
+
+test('the ticket table shows cache reads and writes, on the run line and in the head', () => {
+  const { stateDir, repoRoot } = seedCached();
+
+  const lines = renderAudit(readAudit({ stateDir, repoRoot, ticketId: ID })).split('\n');
+
+  assert.match(lines[0]!, /20\.5k cache read · 4\.6k cache write/);
+  const runLine = lines.find((l) => l.includes(' run '))!;
+  assert.match(runLine, /12→310/);
+  assert.match(runLine, /20\.5k cache read · 4\.6k cache write/);
+});
+
+// An old row was saved before cache was counted. It must not claim a measured 0.
+test('an old run row with no cache fields says nothing about cache on its line', () => {
+  const { stateDir, repoRoot } = seed();
+
+  const lines = renderAudit(readAudit({ stateDir, repoRoot, ticketId: ID })).split('\n');
+
+  const runLine = lines.find((l) => l.includes(' run '))!;
+  assert.doesNotMatch(runLine, /cache/);
+});
+
+test('the summary table has cache read and cache write columns', () => {
+  const { stateDir, repoRoot } = seedCached();
+
+  const lines = renderSummary(readAuditSummary({ stateDir, repoRoot })).split('\n');
+
+  assert.match(lines[0]!, /cache read\s+cache write/);
+  const row = lines.find((l) => l.startsWith(ID))!;
+  assert.match(row, /20\.5k\s+4\.6k/);
+  assert.equal(row.length, lines[0]!.length);
+  const roleHead = lines.find((l) => l.startsWith('by role'))!;
+  assert.match(roleHead, /cache read\s+cache write/);
+  const role = lines.find((l) => l.startsWith('coder'))!;
+  assert.match(role, /20\.5k\s+4\.6k/);
 });

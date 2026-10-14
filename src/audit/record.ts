@@ -35,7 +35,8 @@ export interface RunRecord {
   promptBytes: number | null;
   // Null when glafka could not see the agent's output. Never zero.
   responseBytes: number | null;
-  tokens: { in: number; out: number } | null;
+  // The cache fields are optional: rows saved before they existed have none.
+  tokens: { in: number; out: number; cacheRead?: number; cacheWrite?: number } | null;
   tokenSource: string | null;
   // What this run was, when the stage alone cannot say. Two `genesis` rows on
   // one ticket are the spec and the plan, and nothing else distinguishes them.
