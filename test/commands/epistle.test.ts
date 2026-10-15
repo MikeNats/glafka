@@ -200,6 +200,88 @@ test(
 );
 
 test(
+  'CBM present: epistlePrepare uses cbmQuery instead of odysseUpdate',
+  { concurrency: true },
+  async () => {
+    const repoRoot = makeGitRepo();
+    addBareRemote(repoRoot);
+    const stateDir = tempStateDir();
+    const ticket = await genesis({
+      repoRoot,
+      stateDir,
+      content: 'add a widget',
+      planContent: '1. add widget.js',
+    });
+
+    fs.writeFileSync(path.join(ticket.worktree!, 'widget.js'), 'export const widget = 1;\n');
+    execFileSync('git', ['add', 'widget.js'], { cwd: ticket.worktree! });
+    execFileSync('git', ['commit', '-q', '-m', 'add widget.js'], { cwd: ticket.worktree! });
+
+    let odysseUpdateCalled = false;
+    let cbmQueryArgs: { tool: string; args: Record<string, string> } | null = null;
+
+    const result = epistlePrepare({
+      unreviewed: true,
+      stateDir,
+      id: ticket.id,
+      repoRoot,
+      cbmAvailable: () => true,
+      cbmQuery: (_repoRoot: string, tool: string, args: Record<string, string>) => {
+        cbmQueryArgs = { tool, args };
+        return 'CBM: changes detected in widget.js';
+      },
+      odysseUpdate: () => {
+        odysseUpdateCalled = true;
+        return { prompt: 'should not be used' };
+      },
+    });
+
+    assert.equal(result.odysseUpdatePrompt, 'CBM: changes detected in widget.js');
+    assert.equal(
+      odysseUpdateCalled,
+      false,
+      'odysseUpdate must not be called when CBM is available',
+    );
+    assert.equal(cbmQueryArgs!.tool, 'detect_changes');
+    assert.ok(cbmQueryArgs!.args.paths.includes('widget.js'));
+    // AC-5: buildDocSyncPrompt is unchanged in the CBM path.
+    assert.match(result.docSyncPrompt!, /plan\.md/);
+  },
+);
+
+test('CBM absent: epistlePrepare uses odysseUpdate as before', { concurrency: true }, async () => {
+  const repoRoot = makeGitRepo();
+  addBareRemote(repoRoot);
+  const stateDir = tempStateDir();
+  const ticket = await genesis({ repoRoot, stateDir, content: 'add a widget' });
+
+  fs.writeFileSync(path.join(ticket.worktree!, 'widget.js'), 'export const widget = 1;\n');
+  execFileSync('git', ['add', 'widget.js'], { cwd: ticket.worktree! });
+  execFileSync('git', ['commit', '-q', '-m', 'add widget.js'], { cwd: ticket.worktree! });
+
+  let cbmQueryCalled = false;
+
+  const result = epistlePrepare({
+    unreviewed: true,
+    stateDir,
+    id: ticket.id,
+    repoRoot,
+    cbmAvailable: () => false,
+    cbmQuery: () => {
+      cbmQueryCalled = true;
+      return '';
+    },
+  });
+
+  assert.equal(cbmQueryCalled, false, 'cbmQuery must not be called when CBM is absent');
+  assert.match(result.odysseUpdatePrompt, /widget\.js/);
+  assert.ok(
+    result.odysseUpdatePrompt.includes(`${ticket.worktree!}/docs/glafka/architecture`),
+    'falls back to the odysseUpdate prompt',
+  );
+});
+
+test(
   'epistle rebases onto the latest origin/main before pushing, bringing in work that landed after the ticket branched',
   { concurrency: true },
   async () => {
