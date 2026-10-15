@@ -5,7 +5,7 @@ import {
 } from '../../../src/commands/genesis/genesis.js';
 import { AUDIT_STAGES } from '../../../src/audit/record.js';
 import { ROLES } from '../../../src/types/ticket.js';
-import { loadPromptContext } from '../../../src/memory/context.js';
+import { loadPromptContextFor } from '../../../src/memory/context.js';
 import { deliverPrompt } from '../agent/deliverPrompt.js';
 import { continueToErgon } from '../agent/continueToErgon.js';
 import { resolvePolicy } from '../../guardrails/index.js';
@@ -39,7 +39,7 @@ async function printSpecDraft({
   // but none of these parts need one.
   await deliverPrompt(
     buildSpecPrompt(idea, {
-      ...loadPromptContext({ repoRoot }),
+      ...loadPromptContextFor({ consumer: 'spec', repoRoot }),
       personaContent,
       ticketId,
       repoRoot,
@@ -77,7 +77,10 @@ async function printPlanDraft({
   const specContent = args.slice(2).join(' ');
   const { policy } = resolvePolicy({ repoRoot });
   await deliverPrompt(
-    buildPlanPrompt(specContent, { ...loadPromptContext({ repoRoot }), ticketId }),
+    buildPlanPrompt(specContent, {
+      ...loadPromptContextFor({ consumer: 'plan', repoRoot }),
+      ticketId,
+    }),
     {
       cwd: repoRoot,
       policy,
