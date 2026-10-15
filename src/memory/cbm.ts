@@ -21,7 +21,7 @@ function stderrFrom(err: unknown): string {
 const defaultExec: CbmExec = (bin, args, opts) =>
   execFileSync(bin, args, { encoding: 'utf8', ...opts });
 
-interface CbmOpts {
+export interface CbmOpts {
   exec?: CbmExec;
 }
 

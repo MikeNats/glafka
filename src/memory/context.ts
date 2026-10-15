@@ -4,6 +4,8 @@ import { readArchitectureIndex, readProorismos, readArchitectureStamp } from './
 import { commitsBetween } from '../util/git.js';
 import type { PromptContext } from '../types/promptContext.js';
 
+export { cbmArchitecture, cbmFileOutlines, cbmBlastRadius } from './contextCbm.js';
+
 // Everything a prompt can say about the project. Same order everywhere.
 
 // Callers only pass the parts they have, never the whole thing,
