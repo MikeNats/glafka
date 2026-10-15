@@ -6,7 +6,12 @@ import { makeTempDir } from '../helpers/tempDir.js';
 import { odysse } from '../../src/commands/odysse/odysse.js';
 import { runOdysse } from '../../installKit/bin/commands/odysse.js';
 import { loadConfig } from '../../src/config.js';
-import { architectureStampPath } from '../../src/memory/docsStore.js';
+import {
+  architectureStampPath,
+  workspaceProposalPath,
+  writeDoc,
+} from '../../src/memory/docsStore.js';
+import { proposeEthos } from '../../src/memory/ethos.js';
 
 // --- odysse() unit tests ---
 
@@ -45,49 +50,49 @@ test('odysse returns cbmIndexed: false and a prompt when CBM is absent', () => {
 test('odysse defaults to real cbm functions when no cbm option is given', () => {
   const repoRoot = makeGitRepo();
 
-  // CBM binary is not on PATH in test, so it falls through to the prompt path.
   const result = odysse({ repoRoot });
 
   assert.equal(result.cbmIndexed, false);
   assert.ok(typeof result.prompt === 'string');
 });
 
-// --- runOdysse / runFullScan integration tests ---
+// --- helpers ---
 
-function captureStderr(fn: () => Promise<void>): Promise<string> {
+async function captureAll(fn: () => Promise<void>): Promise<string> {
   const lines: string[] = [];
-  const real = console.error;
+  const realLog = console.log;
+  const realErr = console.error;
+  console.log = (...a: unknown[]) => lines.push(a.join(' '));
   console.error = (...a: unknown[]) => lines.push(a.join(' '));
-  return fn().then(
-    () => {
-      console.error = real;
-      return lines.join('\n');
-    },
-    (err) => {
-      console.error = real;
-      throw err;
-    },
-  );
+  try {
+    await fn();
+  } finally {
+    console.log = realLog;
+    console.error = realErr;
+  }
+  return lines.join('\n');
 }
 
-// AC-1 / AC-4: CBM path skips deliverPrompt and reports CBM.
+const cbmPresent = { available: () => true, indexRepository: () => {} };
+
+// --- runFullScan integration tests ---
+
 test('CBM path: reports indexed by codebase-memory-mcp', async () => {
   const repoRoot = makeGitRepo();
 
-  const output = await captureStderr(() =>
+  const output = await captureAll(() =>
     runOdysse({
       args: [],
       repoRoot,
       stateDir: makeTempDir('state'),
       config: loadConfig(repoRoot),
-      cbm: { available: () => true, indexRepository: () => {} },
+      cbm: cbmPresent,
     }),
   );
 
   assert.match(output, /indexed by codebase-memory-mcp/);
 });
 
-// AC-2: scan.json is written with the current HEAD commit.
 test('CBM path: scan.json is written', async () => {
   const repoRoot = makeGitRepo();
 
@@ -96,7 +101,7 @@ test('CBM path: scan.json is written', async () => {
     repoRoot,
     stateDir: makeTempDir('state'),
     config: loadConfig(repoRoot),
-    cbm: { available: () => true, indexRepository: () => {} },
+    cbm: cbmPresent,
   });
 
   const stamp = JSON.parse(fs.readFileSync(architectureStampPath(repoRoot), 'utf8'));
@@ -104,11 +109,10 @@ test('CBM path: scan.json is written', async () => {
   assert.ok(stamp.commit.length > 0);
 });
 
-// AC-3: non-CBM path falls through to the prompt.
-test('non-CBM path: report says doc(s) or prompt is printed', async () => {
+test('non-CBM path: prompt is printed, not CBM report', async () => {
   const repoRoot = makeGitRepo();
 
-  const output = await captureStderr(() =>
+  const output = await captureAll(() =>
     runOdysse({
       args: [],
       repoRoot,
@@ -118,7 +122,61 @@ test('non-CBM path: report says doc(s) or prompt is printed', async () => {
     }),
   );
 
-  // No agent ran (no GLAFKA_AGENT_CMD in tests), so the prompt-paste message appears.
   assert.match(output, /Once the scan above is done/);
+  assert.doesNotMatch(output, /indexed by codebase-memory-mcp/);
+});
+
+// --- AC-5/6/7: flag paths are unaffected by CBM presence ---
+
+test('--checks still works with CBM present', async () => {
+  const repoRoot = makeGitRepo();
+
+  const output = await captureAll(() =>
+    runOdysse({
+      args: ['--checks'],
+      repoRoot,
+      stateDir: makeTempDir('state'),
+      config: loadConfig(repoRoot),
+      cbm: cbmPresent,
+    }),
+  );
+
+  // The checks probe prompt is printed (no agent in tests).
+  assert.doesNotMatch(output, /indexed by codebase-memory-mcp/);
+});
+
+test('--keep still works with CBM present', async () => {
+  const repoRoot = makeGitRepo();
+  proposeEthos(repoRoot, { target: 'ETHOS_CODE', text: 'a rule' });
+
+  const output = await captureAll(() =>
+    runOdysse({
+      args: ['--keep', 'all'],
+      repoRoot,
+      stateDir: makeTempDir('state'),
+      config: loadConfig(repoRoot),
+      cbm: cbmPresent,
+    }),
+  );
+
+  assert.match(output, /observation\(s\) kept/);
+  assert.doesNotMatch(output, /indexed by codebase-memory-mcp/);
+});
+
+test('--workspace-keep still works with CBM present', async () => {
+  const repoRoot = makeGitRepo();
+  writeDoc(workspaceProposalPath(repoRoot), JSON.stringify({ baseRef: 'main' }));
+
+  const output = await captureAll(() =>
+    runOdysse({
+      args: ['--workspace-keep', 'all'],
+      repoRoot,
+      stateDir: makeTempDir('state'),
+      config: loadConfig(repoRoot),
+      cbm: cbmPresent,
+    }),
+  );
+
+  assert.match(output, /workspace setting\(s\) written/);
   assert.doesNotMatch(output, /indexed by codebase-memory-mcp/);
 });
