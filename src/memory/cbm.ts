@@ -21,7 +21,11 @@ function stderrFrom(err: unknown): string {
 const defaultExec: CbmExec = (bin, args, opts) =>
   execFileSync(bin, args, { encoding: 'utf8', ...opts });
 
-export function cbmAvailable(opts: { exec?: CbmExec } = {}): boolean {
+interface CbmOpts {
+  exec?: CbmExec;
+}
+
+export function cbmAvailable(opts: CbmOpts = {}): boolean {
   const exec = opts.exec ?? defaultExec;
   try {
     exec(CBM_BIN, ['--help'], { stdio: 'ignore' });
@@ -30,6 +34,17 @@ export function cbmAvailable(opts: { exec?: CbmExec } = {}): boolean {
     if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
       return false;
     }
+    throw new CbmError(stderrFrom(err));
+  }
+}
+
+export function cbmIndexRepository(repoRoot: string, opts: CbmOpts = {}): void {
+  const exec = opts.exec ?? defaultExec;
+  try {
+    exec(CBM_BIN, ['index_repository', '--repo-root', repoRoot], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+  } catch (err: unknown) {
     throw new CbmError(stderrFrom(err));
   }
 }
