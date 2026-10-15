@@ -35,6 +35,46 @@ export function cbmBlastRadius(
   return cbmQuery(repoRoot, 'detect_changes', { paths: paths.join(',') }, opts);
 }
 
+interface ArchResult {
+  value: string | null;
+  fromCbm: boolean;
+}
+
+function resolveArchitecture(
+  consumer: Consumer,
+  repoRoot: string,
+  hasCbm: boolean,
+  opts: { paths?: string[] | null; files?: string[] | null; cbmOpts?: CbmOpts },
+): ArchResult {
+  if (!hasCbm) return { value: readArchitectureIndex(repoRoot), fromCbm: false };
+  switch (consumer) {
+    case 'spec':
+    case 'plan':
+      return { value: cbmQuery(repoRoot, 'get_architecture', {}, opts.cbmOpts), fromCbm: true };
+    case 'coder':
+      if (opts.files && opts.files.length > 0) {
+        const outlines = opts.files
+          .map((f) => cbmQuery(repoRoot, 'get_file_outline', { path: f }, opts.cbmOpts))
+          .join('\n');
+        return { value: outlines, fromCbm: true };
+      }
+      return { value: cbmQuery(repoRoot, 'get_architecture', {}, opts.cbmOpts), fromCbm: true };
+    case 'reviewer':
+      if (opts.paths && opts.paths.length > 0) {
+        return {
+          value: cbmQuery(
+            repoRoot,
+            'detect_changes',
+            { paths: opts.paths.join(',') },
+            opts.cbmOpts,
+          ),
+          fromCbm: true,
+        };
+      }
+      return { value: cbmQuery(repoRoot, 'get_architecture', {}, opts.cbmOpts), fromCbm: true };
+  }
+}
+
 export function loadPromptContextFor({
   consumer,
   repoRoot,
@@ -51,27 +91,14 @@ export function loadPromptContextFor({
   cbmOpts?: CbmOpts;
 }): PromptContext {
   void worktree;
-
-  let arch: string | null;
-  switch (consumer) {
-    case 'spec':
-    case 'plan':
-      arch = cbmArchitecture(repoRoot, cbmOpts);
-      break;
-    case 'coder':
-      arch = cbmFileOutlines(repoRoot, files, cbmOpts);
-      break;
-    case 'reviewer':
-      arch = cbmBlastRadius(repoRoot, paths, cbmOpts);
-      break;
-  }
-
-  const usedCbm = cbmAvailable(cbmOpts) && arch !== readArchitectureIndex(repoRoot);
-  const freshness = usedCbm ? null : architectureFreshness(repoRoot);
-
+  const { value: arch, fromCbm } = resolveArchitecture(consumer, repoRoot, cbmAvailable(cbmOpts), {
+    paths,
+    files,
+    cbmOpts,
+  });
   return {
     architectureIndex: arch,
-    architectureFreshness: freshness,
+    architectureFreshness: fromCbm ? null : architectureFreshness(repoRoot),
     ethosContent: readEthosDocs(repoRoot, paths),
     proorismos: readProorismos(repoRoot),
     categories: loadCategories(repoRoot),

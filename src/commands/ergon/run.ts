@@ -196,6 +196,10 @@ export async function ergon({
       : [];
   const resumeNote = buildResumeNote({ stateDir, ticket });
 
+  // `paths` scopes ethos rules; `files` gives CBM the outlines to fetch.
+  // Both come from the plan+spec text — see pathsNamedIn.
+  const namedPaths = pathsNamedIn(`${planContent}\n${ticket.specText ?? ''}`);
+
   const prompt = buildErgonPrompt({
     ticket,
     planContent,
@@ -204,15 +208,13 @@ export async function ergon({
     e2eCmd,
     alreadyDone,
     resumeNote,
-    // `paths` scopes ethos rules; `files` gives CBM the outlines to fetch.
-    // Both come from the plan+spec text — see pathsNamedIn.
     context: {
       ...loadPromptContextFor({
         consumer: 'coder',
         repoRoot,
         worktree: ticket.worktree,
-        paths: pathsNamedIn(`${planContent}\n${ticket.specText ?? ''}`),
-        files: pathsNamedIn(`${planContent}\n${ticket.specText ?? ''}`),
+        paths: namedPaths,
+        files: namedPaths,
       }),
       personaContent,
     },

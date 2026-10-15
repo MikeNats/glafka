@@ -456,3 +456,29 @@ test('loadPromptContextFor — CBM absent fallback uses README', () => {
   assert.match(ctx.architectureIndex!, /README map/);
   assert.notEqual(ctx.architectureFreshness, null);
 });
+
+// AC-4: coder with null/empty files falls back to get_architecture, not file outlines.
+test('loadPromptContextFor — coder with no files falls back to get_architecture', () => {
+  const repoRoot = tempDir();
+  const ctx = loadPromptContextFor({
+    consumer: 'coder',
+    repoRoot,
+    files: null,
+    cbmOpts: cbmPresent('architecture fallback'),
+  });
+  assert.equal(ctx.architectureIndex, 'architecture fallback');
+  assert.equal(ctx.architectureFreshness, null);
+});
+
+// AC-7: CBM absent + no README → architectureIndex null, section skipped.
+test('loadPromptContextFor — no CBM, no README → architectureIndex null', () => {
+  const repoRoot = tempDir();
+  const ctx = loadPromptContextFor({
+    consumer: 'reviewer',
+    repoRoot,
+    paths: ['src/a.ts'],
+    cbmOpts: cbmAbsent(),
+  });
+  assert.equal(ctx.architectureIndex, null);
+  assert.equal(ctx.architectureFreshness, null);
+});
