@@ -1,6 +1,35 @@
+import { execFileSync } from 'node:child_process';
+
+const CBM_BIN = 'codebase-memory-mcp';
+
 export class CbmError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CbmError';
+  }
+}
+
+export type CbmExec = (bin: string, args: string[], opts: object) => string;
+
+function stderrFrom(err: unknown): string {
+  if (err && typeof err === 'object' && 'stderr' in err) {
+    return String((err as { stderr: unknown }).stderr).trim() || String(err);
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+const defaultExec: CbmExec = (bin, args, opts) =>
+  execFileSync(bin, args, { encoding: 'utf8', ...opts });
+
+export function cbmAvailable(opts: { exec?: CbmExec } = {}): boolean {
+  const exec = opts.exec ?? defaultExec;
+  try {
+    exec(CBM_BIN, ['--help'], { stdio: 'ignore' });
+    return true;
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'ENOENT') {
+      return false;
+    }
+    throw new CbmError(stderrFrom(err));
   }
 }
