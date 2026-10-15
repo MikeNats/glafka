@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { writeDoc, architectureIndexPath } from '../../src/memory/docsStore.js';
 import { makeTempDir } from '../helpers/tempDir.js';
 import type { CbmExec } from '../../src/memory/cbm.js';
-import { cbmArchitecture, cbmFileOutlines, cbmBlastRadius } from '../../src/memory/context.js';
+import {
+  cbmArchitecture,
+  cbmFileOutlines,
+  cbmBlastRadius,
+  loadPromptContextFor,
+} from '../../src/memory/context.js';
+import { ethosPath } from '../../src/memory/docsStore.js';
+import { AUTHORED_HEADING } from '../../src/memory/ethos.js';
 import type { CbmOpts } from '../../src/memory/cbm.js';
 
 // --- Helpers ---
@@ -107,4 +114,81 @@ test('cbmBlastRadius — CBM absent, README exists → returns README', () => {
   writeDoc(architectureIndexPath(repoRoot), '# Blast fallback\n');
   const result = cbmBlastRadius(repoRoot, ['src/a.ts'], cbmAbsent());
   assert.match(result!, /Blast fallback/);
+});
+
+// --- loadPromptContextFor ---
+
+function repoWithEthos(): string {
+  const repoRoot = tempDir();
+  writeDoc(
+    ethosPath(repoRoot, 'ETHOS_CODE'),
+    `# ETHOS_CODE\n\n${AUTHORED_HEADING}\n\n- no wrappers\n`,
+  );
+  return repoRoot;
+}
+
+test('loadPromptContextFor — spec consumer, CBM present', () => {
+  const repoRoot = repoWithEthos();
+  const ctx = loadPromptContextFor({
+    consumer: 'spec',
+    repoRoot,
+    cbmOpts: cbmPresent('arch from cbm'),
+  });
+  assert.equal(ctx.architectureIndex, 'arch from cbm');
+  assert.equal(ctx.architectureFreshness, null);
+  assert.match(ctx.ethosContent!, /no wrappers/);
+});
+
+test('loadPromptContextFor — plan consumer, CBM present', () => {
+  const repoRoot = repoWithEthos();
+  const ctx = loadPromptContextFor({
+    consumer: 'plan',
+    repoRoot,
+    cbmOpts: cbmPresent('plan arch data'),
+  });
+  assert.equal(ctx.architectureIndex, 'plan arch data');
+  assert.equal(ctx.architectureFreshness, null);
+});
+
+test('loadPromptContextFor — coder consumer with files', () => {
+  const repoRoot = tempDir();
+  const exec: CbmExec = (_bin, args) => {
+    if (args.includes('--help')) return '';
+    return 'file outline data\n';
+  };
+  const ctx = loadPromptContextFor({
+    consumer: 'coder',
+    repoRoot,
+    files: ['src/a.ts'],
+    cbmOpts: { exec },
+  });
+  assert.equal(ctx.architectureIndex, 'file outline data');
+});
+
+test('loadPromptContextFor — reviewer consumer with changed paths', () => {
+  const repoRoot = tempDir();
+  const exec: CbmExec = (_bin, args) => {
+    if (args.includes('--help')) return '';
+    return 'blast radius data\n';
+  };
+  const ctx = loadPromptContextFor({
+    consumer: 'reviewer',
+    repoRoot,
+    paths: ['src/a.ts'],
+    cbmOpts: { exec },
+  });
+  assert.equal(ctx.architectureIndex, 'blast radius data');
+});
+
+test('loadPromptContextFor — CBM absent fallback uses README', () => {
+  const repoRoot = tempDir();
+  writeDoc(architectureIndexPath(repoRoot), '# README map\n');
+  const ctx = loadPromptContextFor({
+    consumer: 'spec',
+    repoRoot,
+    cbmOpts: cbmAbsent(),
+  });
+  assert.match(ctx.architectureIndex!, /README map/);
+  // Freshness is set when using the fallback
+  assert.notEqual(ctx.architectureFreshness, null);
 });
