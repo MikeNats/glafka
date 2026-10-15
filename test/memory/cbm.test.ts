@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CbmError, cbmAvailable, cbmIndexRepository } from '../../src/memory/cbm.js';
+import { CbmError, cbmAvailable, cbmIndexRepository, cbmQuery } from '../../src/memory/cbm.js';
 import type { CbmExec } from '../../src/memory/cbm.js';
 
 test('CbmError has the right name and is an Error', () => {
@@ -68,6 +68,40 @@ test('cbmIndexRepository throws CbmError on non-zero exit', () => {
     (err: unknown) => {
       assert.ok(err instanceof CbmError);
       assert.match(err.message, /disk full/);
+      return true;
+    },
+  );
+});
+
+// --- cbmQuery ---
+
+test('cbmQuery returns stdout and passes tool name and args to the binary', () => {
+  const calls: { bin: string; args: string[] }[] = [];
+  const exec: CbmExec = (bin, args) => {
+    calls.push({ bin, args: [...args] });
+    return '{"nodes": 42}\n';
+  };
+  const result = cbmQuery('/my/repo', 'get_architecture', { detail_level: 'high' }, { exec });
+  assert.equal(result, '{"nodes": 42}');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.bin, 'codebase-memory-mcp');
+  assert.ok(calls[0]!.args.includes('get_architecture'));
+  assert.ok(calls[0]!.args.includes('/my/repo'));
+  assert.ok(calls[0]!.args.includes('--detail_level'));
+  assert.ok(calls[0]!.args.includes('high'));
+});
+
+test('cbmQuery throws CbmError on non-zero exit', () => {
+  const exec: CbmExec = () => {
+    const err = new Error('process exited with code 1') as Error & { stderr: string };
+    err.stderr = 'unknown tool';
+    throw err;
+  };
+  assert.throws(
+    () => cbmQuery('/my/repo', 'bad_tool', {}, { exec }),
+    (err: unknown) => {
+      assert.ok(err instanceof CbmError);
+      assert.match(err.message, /unknown tool/);
       return true;
     },
   );

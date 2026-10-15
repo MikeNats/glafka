@@ -48,3 +48,21 @@ export function cbmIndexRepository(repoRoot: string, opts: CbmOpts = {}): void {
     throw new CbmError(stderrFrom(err));
   }
 }
+
+export function cbmQuery(
+  repoRoot: string,
+  tool: string,
+  args: Record<string, string>,
+  opts: CbmOpts = {},
+): string {
+  const exec = opts.exec ?? defaultExec;
+  const argv = [tool, '--repo-root', repoRoot];
+  for (const [k, v] of Object.entries(args)) {
+    argv.push(`--${k}`, v);
+  }
+  try {
+    return exec(CBM_BIN, argv, { maxBuffer: 64 * 1024 * 1024 }).trimEnd();
+  } catch (err: unknown) {
+    throw new CbmError(stderrFrom(err));
+  }
+}
