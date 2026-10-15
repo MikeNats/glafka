@@ -6,6 +6,7 @@ import {
   odysseFollowUp,
   readWorkspaceProposalListing,
 } from '../../../src/commands/odysse/odysse.js';
+import type { CbmFns } from '../../../src/commands/odysse/odysse.js';
 import { readProposals, proposeEthos } from '../../../src/memory/ethos.js';
 import { AUDIT_STAGES } from '../../../src/audit/record.js';
 import { ROLES } from '../../../src/types/ticket.js';
@@ -70,6 +71,7 @@ export async function runOdysse({
   stateDir,
   config,
   hasTty: hasTtyFn = hasTty,
+  cbm,
 }: {
   args: string[];
   repoRoot: string;
@@ -77,6 +79,7 @@ export async function runOdysse({
   config: Pick<Config, 'agents' | 'observability' | 'checksTimeoutMs'>;
   // Injectable so a test can prove both audiences get the right text.
   hasTty?: () => boolean;
+  cbm?: CbmFns;
 }): Promise<void> {
   const atTty = hasTtyFn();
   // The category flags come from the project, so the allowlist is built from them too.
@@ -195,7 +198,7 @@ export async function runOdysse({
   }
 
   async function runFullScan() {
-    const result = odysse({ repoRoot });
+    const result = odysse({ repoRoot, cbm });
 
     if (result.cbmIndexed) {
       if (refExists(repoRoot, 'HEAD')) {

@@ -13,7 +13,7 @@ import { cbmAvailable, cbmIndexRepository } from '../../memory/cbm.js';
 export type OdysseResult =
   { prompt: null; cbmIndexed: true } | { prompt: string; cbmIndexed: false };
 
-interface CbmFns {
+export interface CbmFns {
   available: () => boolean;
   indexRepository: (repoRoot: string) => void;
 }
