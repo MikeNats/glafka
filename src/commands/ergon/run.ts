@@ -21,7 +21,7 @@ import {
 import { latestById } from '../epalitheusis/outcome.js';
 import { readDoc } from '../../memory/docsStore.js';
 import { readDecisions } from '../../ticket/decisions.js';
-import { loadPromptContext } from '../../memory/context.js';
+import { loadPromptContextFor } from '../../memory/context.js';
 import { spawnBackground, backgroundStatus, RUNNING_STATES } from '../../ticket/background.js';
 import { assertNoLiveVerifier } from '../../ticket/liveVerifier.js';
 import { assertUnchanged, resolvePolicy } from '../../../installKit/guardrails/index.js';
@@ -204,14 +204,15 @@ export async function ergon({
     e2eCmd,
     alreadyDone,
     resumeNote,
-    // The persona lives outside the repo, so the caller passes it in. `paths` scopes the ethos
-    // rules. There is no diff yet, so they come from the plan and the ticket — see pathsNamedIn for
-    // why, and why it returns null rather than an empty list when it finds nothing.
+    // `paths` scopes ethos rules; `files` gives CBM the outlines to fetch.
+    // Both come from the plan+spec text — see pathsNamedIn.
     context: {
-      ...loadPromptContext({
+      ...loadPromptContextFor({
+        consumer: 'coder',
         repoRoot,
         worktree: ticket.worktree,
         paths: pathsNamedIn(`${planContent}\n${ticket.specText ?? ''}`),
+        files: pathsNamedIn(`${planContent}\n${ticket.specText ?? ''}`),
       }),
       personaContent,
     },
