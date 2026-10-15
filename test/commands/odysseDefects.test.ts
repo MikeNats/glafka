@@ -16,6 +16,14 @@ import {
   isolationProfilePath,
 } from '../../src/memory/docsStore.js';
 import { odysse, odysseFollowUp } from '../../src/commands/odysse/odysse.js';
+import type { OdysseResult } from '../../src/commands/odysse/odysse.js';
+
+// Forces the non-CBM path and narrows the return type for prompt assertions.
+function odyssePromptPath(opts: { repoRoot: string }): { prompt: string } {
+  const r: OdysseResult = odysse(opts);
+  if (r.cbmIndexed) throw new Error('expected non-CBM path');
+  return r;
+}
 import {
   readEthosDocs,
   decideProposals,
@@ -114,7 +122,7 @@ test('an unknown flag is still refused, with the near-miss named', async () => {
 test('the scan prompt tells the agent not to write its own report', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /What to print when you stop/);
   assert.match(prompt, /Do not write your own version of it/);
@@ -248,7 +256,7 @@ test('the workspace proposal is parked, not deleted', () => {
 test('the prompt asks for one checklist, kept current for the whole run', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /What to print while you work/);
   assert.match(prompt, /checklist before you open a single file/);
@@ -262,7 +270,7 @@ test('the prompt asks for one checklist, kept current for the whole run', () => 
 test('a harness with no in-place list is told to print nothing', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /redraws in place/);
   assert.match(prompt, /no such list, print nothing at all/);
@@ -274,7 +282,7 @@ test('a harness with no in-place list is told to print nothing', () => {
 test('the progress instruction names no platform tool', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.doesNotMatch(prompt, /TodoWrite/);
   assert.doesNotMatch(prompt, /Claude/i);
@@ -391,7 +399,7 @@ test('the skill states the contract without naming a platform tool', () => {
 test('the prompt forbids the internals and forbids routing around a failure', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /Using glafka/);
   assert.match(prompt, /Never read, import or call anything under `\.glafka\/`/);
@@ -454,7 +462,7 @@ test('every ethos write point is marked in the vendored source', () => {
 test('discovery runs to the end, whatever it turns up', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /Things you find that are not the map/);
   assert.match(prompt, /Never\s+stop\s+the\s+scan\s+to\s+ask\s+about\s+one/);
@@ -468,7 +476,7 @@ test('discovery runs to the end, whatever it turns up', () => {
 test('the only permitted stop is one that blocks the scan itself', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /blocks the scan\s+itself/);
   assert.match(prompt, /an obstacle, not a finding/);
@@ -478,7 +486,7 @@ test('the only permitted stop is one that blocks the scan itself', () => {
 test('the findings are offered once, after every other decision', () => {
   const repoRoot = makeGitRepo();
 
-  const { prompt } = odysse({ repoRoot });
+  const { prompt } = odyssePromptPath({ repoRoot });
 
   assert.match(prompt, /after every decision above is settled/);
   assert.match(prompt, /ask whether they want to go through them now/);

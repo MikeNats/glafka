@@ -195,9 +195,18 @@ export async function runOdysse({
   }
 
   async function runFullScan() {
-    const { prompt } = odysse({ repoRoot });
+    const result = odysse({ repoRoot });
+
+    if (result.cbmIndexed) {
+      if (refExists(repoRoot, 'HEAD')) {
+        writeArchitectureStamp(repoRoot, headCommit(repoRoot));
+      }
+      console.error('\nodysse: indexed by codebase-memory-mcp');
+      return;
+    }
+
     const { policy } = resolvePolicy({ repoRoot });
-    const ranAgent = await deliverPrompt(prompt, {
+    const ranAgent = await deliverPrompt(result.prompt, {
       cwd: repoRoot,
       policy,
       stateDir,

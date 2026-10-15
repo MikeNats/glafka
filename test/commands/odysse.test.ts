@@ -10,10 +10,11 @@ test(
   () => {
     const repoRoot = makeGitRepo();
 
-    const { prompt } = odysse({ repoRoot });
+    const result = odysse({ repoRoot });
+    assert.equal(result.cbmIndexed, false);
 
-    assert.match(prompt, /README\.md/);
-    assert.match(prompt, /docs\/glafka\/architecture/);
+    assert.match(result.prompt, /README\.md/);
+    assert.match(result.prompt, /docs\/glafka\/architecture/);
   },
 );
 
