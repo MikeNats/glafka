@@ -39,7 +39,11 @@ import {
 } from '../../ticket/ticketStore.js';
 import type { Ticket } from '../../types/ticket.js';
 import { DOCS_ROOT, isTidyDoc } from '../../memory/docsStore.js';
-import { odysseUpdate } from '../odysse/odysse.js';
+import { odysseUpdate as odysseUpdateDefault } from '../odysse/odysse.js';
+import {
+  cbmAvailable as cbmAvailableDefault,
+  cbmQuery as cbmQueryDefault,
+} from '../../memory/cbm.js';
 import { VERDICT_SOURCE } from '../ergon/ergon.js';
 import { assertNoLiveRun } from '../../ticket/background.js';
 import {
@@ -136,6 +140,9 @@ export function epistlePrepare({
   // check — this command reads evidence, it does not gather it.
   checksCmd = null,
   e2eCmd = null,
+  cbmAvailable = cbmAvailableDefault,
+  cbmQuery = cbmQueryDefault,
+  odysseUpdate = odysseUpdateDefault,
 }: {
   stateDir: string;
   id: string;
@@ -148,6 +155,9 @@ export function epistlePrepare({
   // can take one options object for the whole command.
   createPr?: typeof createPullRequest;
   findOpenPr?: typeof openPullRequestForBranch;
+  cbmAvailable?: typeof cbmAvailableDefault;
+  cbmQuery?: typeof cbmQueryDefault;
+  odysseUpdate?: typeof odysseUpdateDefault;
 }): EpistleResult {
   const ticket = readTicket(stateDir, id);
   assertNotClosed(ticket);
@@ -379,14 +389,31 @@ export function epistlePrepare({
     });
   }
 
-  // Both roots are the worktree. Passing `repoRoot` here is what used to send
-  // every architecture edit into the main checkout, uncommitted.
-  const { prompt: odysseUpdatePrompt } = odysseUpdate({
-    repoRoot: ticket.worktree,
-    treeRoot: ticket.worktree,
-    changedPaths: paths,
-    diff: docDiff,
-  });
+  // When codebase-memory-mcp is installed, detect_changes gives the same
+  // information instantly. Falls back to odysseUpdate on CBM failure so a
+  // broken install never blocks a push.
+  let odysseUpdatePrompt: string;
+  if (cbmAvailable()) {
+    try {
+      odysseUpdatePrompt = cbmQuery(ticket.worktree, 'detect_changes', {
+        paths: paths.join(','),
+      });
+    } catch {
+      ({ prompt: odysseUpdatePrompt } = odysseUpdate({
+        repoRoot: ticket.worktree,
+        treeRoot: ticket.worktree,
+        changedPaths: paths,
+        diff: docDiff,
+      }));
+    }
+  } else {
+    ({ prompt: odysseUpdatePrompt } = odysseUpdate({
+      repoRoot: ticket.worktree,
+      treeRoot: ticket.worktree,
+      changedPaths: paths,
+      diff: docDiff,
+    }));
+  }
 
   // Changed files that will run on YOUR machine, not in the cage.
   // Worth reading, but it does not block the push.
