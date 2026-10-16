@@ -19,7 +19,7 @@ import {
   setReviewedTree,
 } from '../../ticket/ticketStore.js';
 import { assertNoLiveVerifier } from '../../ticket/liveVerifier.js';
-import { loadPromptContext } from '../../memory/context.js';
+import { loadPromptContextFor } from '../../memory/context.js';
 import { readStandards, readReviewDoc } from '../../memory/standards.js';
 import {
   spawnBackground,
@@ -451,10 +451,15 @@ async function prepareReview({
       : null;
 
   // The reviewer has a real diff, so its scoped rules match exact files.
-  // Standards and the project's own review doc are added HERE and not in loadPromptContext:
-  // that function feeds the coder too, and these two are reviewer-only by design.
+  // Standards and the project's own review doc are added HERE:
+  // they are reviewer-only by design.
   const context = {
-    ...loadPromptContext({ repoRoot, worktree: ticket.worktree, paths: changed }),
+    ...loadPromptContextFor({
+      consumer: 'reviewer',
+      repoRoot,
+      worktree: ticket.worktree,
+      paths: changed,
+    }),
     personaContent,
     standards: readStandards(repoRoot),
     reviewDoc: readReviewDoc(repoRoot, reviewDoc),
