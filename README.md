@@ -60,7 +60,7 @@ The agent tells you when to do steps 3 and 4. To see where your tickets are,
 run `glafka poreia --all`.
 
 **Plain words work too.** You are talking to an agent, so you can just say
-what you want. An agent that picks commands by itself, like Claude Code, runs
+what you want, just say genesis or epistele. An agent that picks commands by itself, like Claude Code, runs
 the right one:
 
 ```
