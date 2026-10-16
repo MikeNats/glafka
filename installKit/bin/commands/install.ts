@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { nodeProblem } from '../../../src/util/nodeVersion.js';
 import { install, KNOWN_PLATFORMS } from '../../../src/commands/install/install.js';
 import { superpowersReminder } from '../../../src/superpowers.js';
 import { assertKnownFlags } from '../cli/args.js';
@@ -255,6 +256,10 @@ export function runInstall({
     );
   }
 
+  // Said before anything else runs: checks and coders stop on an old Node, so fix it first.
+  const tooOld = nodeProblem(repoRoot);
+  if (tooOld)
+    out.push('', '⚠ Node is too old for this project', `  ${tooOld.replace('\n', '\n  ')}`);
   out.push('', ...guardrailsSection(repoRoot));
   // Roles with the same command share one probe: claude needs two, every other agent one.
   const seen = new Map<string, ProbeResult>();

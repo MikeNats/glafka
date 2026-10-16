@@ -6,6 +6,7 @@ import { NEVER_REDACTED } from '../installKit/guardrails/index.js';
 import type { CheckResult, ChecksVerdict } from './types/checks.js';
 import { shellArgv } from './util/shell.js';
 import { readTicketEnv } from './ticket/resources/ticketEnv.js';
+import { nodeProblem } from './util/nodeVersion.js';
 
 // runNamed takes the file and its args separately, so split the shell argv.
 const shellArgvSplit = (cmd: string): [string, string[]] => {
@@ -199,6 +200,9 @@ export async function runChecks(
     hostExecutingChanges?: string[];
   } = {},
 ): Promise<CheckResult[]> {
+  // A Node too old for the project fails every check for a reason no coder can fix. Stop and say so.
+  const tooOld = nodeProblem(cwd);
+  if (tooOld) throw new Error(tooOld);
   const results: CheckResult[] = [];
   // The ports and connection strings provisioning left in this worktree. A ticket gets its
   // own database, and the tests meant to use it could not reach it: only the dev-server

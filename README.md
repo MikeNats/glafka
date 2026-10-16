@@ -730,7 +730,10 @@ is `src/types/ticket.ts`.
 
 ## Requirements
 
-- **Node.js 22** or newer.
+- **Node.js 22** or newer, and at least what your project asks for in
+  `.nvmrc`, `.node-version` or `package.json` `engines`. If yours is older,
+  `glafka install` warns, and checks and coders stop with the command to
+  update. glafka never changes your Node itself.
 - **git.** Your project must be a git repo with at least one commit.
 - **An agent CLI** on your `PATH`, for example Claude Code (`claude`).
   glafka starts it for the reviewer, the QA tester, doc updates and
