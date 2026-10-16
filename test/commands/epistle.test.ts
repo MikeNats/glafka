@@ -186,6 +186,9 @@ test(
       id: ticket.id,
       repoRoot,
       createPr: () => 'https://github.com/example/repo/pull/4',
+      // Pin to the odysseUpdate path so this test is deterministic even on
+      // machines where codebase-memory-mcp is installed.
+      cbmAvailable: () => false,
     });
 
     assert.match(result.odysseUpdatePrompt, /widget\.js/);
@@ -246,6 +249,39 @@ test(
     assert.ok(cbmQueryArgs!.args.paths.includes('widget.js'));
     // AC-5: buildDocSyncPrompt is unchanged in the CBM path.
     assert.match(result.docSyncPrompt!, /plan\.md/);
+  },
+);
+
+test(
+  'CBM present but cbmQuery throws: epistlePrepare falls back to odysseUpdate',
+  { concurrency: true },
+  async () => {
+    const repoRoot = makeGitRepo();
+    addBareRemote(repoRoot);
+    const stateDir = tempStateDir();
+    const ticket = await genesis({ repoRoot, stateDir, content: 'add a widget' });
+
+    fs.writeFileSync(path.join(ticket.worktree!, 'widget.js'), 'export const widget = 1;\n');
+    execFileSync('git', ['add', 'widget.js'], { cwd: ticket.worktree! });
+    execFileSync('git', ['commit', '-q', '-m', 'add widget.js'], { cwd: ticket.worktree! });
+
+    const result = epistlePrepare({
+      unreviewed: true,
+      stateDir,
+      id: ticket.id,
+      repoRoot,
+      cbmAvailable: () => true,
+      cbmQuery: () => {
+        throw new Error('codebase-memory-mcp crashed');
+      },
+    });
+
+    // Falls back to odysseUpdate output.
+    assert.match(result.odysseUpdatePrompt, /widget\.js/);
+    assert.ok(
+      result.odysseUpdatePrompt.includes(`${ticket.worktree!}/docs/glafka/architecture`),
+      'falls back to the odysseUpdate prompt when cbmQuery throws',
+    );
   },
 );
 

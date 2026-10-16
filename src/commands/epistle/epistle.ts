@@ -390,12 +390,22 @@ export function epistlePrepare({
   }
 
   // When codebase-memory-mcp is installed, detect_changes gives the same
-  // information instantly. The existing odysseUpdate path stays as a fallback.
+  // information instantly. Falls back to odysseUpdate on CBM failure so a
+  // broken install never blocks a push.
   let odysseUpdatePrompt: string;
   if (cbmAvailable()) {
-    odysseUpdatePrompt = cbmQuery(ticket.worktree, 'detect_changes', {
-      paths: paths.join(','),
-    });
+    try {
+      odysseUpdatePrompt = cbmQuery(ticket.worktree, 'detect_changes', {
+        paths: paths.join(','),
+      });
+    } catch {
+      ({ prompt: odysseUpdatePrompt } = odysseUpdate({
+        repoRoot: ticket.worktree,
+        treeRoot: ticket.worktree,
+        changedPaths: paths,
+        diff: docDiff,
+      }));
+    }
   } else {
     ({ prompt: odysseUpdatePrompt } = odysseUpdate({
       repoRoot: ticket.worktree,
