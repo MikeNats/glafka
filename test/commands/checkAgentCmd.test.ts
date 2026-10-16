@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkAgentCmd, writeAgentCmd } from '../../src/commands/install/checkAgentCmd.js';
+import { withLeanStart } from '../../src/util/leanStart.js';
 import { makeTempDir } from '../helpers/tempDir.js';
 
 // A PATH holding one fake executable, so the probe's "is it installed" step can be steered
@@ -21,7 +22,7 @@ test('a command that answers is believed', () => {
     run: () => 'GLAFKAOK\n',
   });
 
-  assert.match(result.cmd!, /^claude -p /);
+  assert.match(result.cmd!, /^claude -p\b/);
   assert.equal(result.why, null);
 });
 
@@ -147,15 +148,16 @@ test('every platform glafka installs has a verifier candidate', () => {
 });
 
 // It must run curl and the project's own CLI, and it should not edit what it is testing.
+// glafka adds the tools when it starts the run, so this checks the command as started.
 test('the claude verifier may run any shell command, and may not edit files', () => {
   const result = checkAgentCmd('claude', {
     env: pathWith('claude'),
     run: () => 'GLAFKAOK',
     role: 'verifier',
   });
-  const cmd = result.cmd!;
-  assert.match(cmd, /--allowedTools '[^']*\bBash\b(?!\()/);
-  assert.match(cmd, /--disallowedTools '[^']*\bEdit\b/);
-  assert.match(cmd, /--disallowedTools '[^']*\bWrite\b/);
+  const cmd = withLeanStart(result.cmd!, 'verifier');
+  assert.match(cmd, /--allowedTools \S*\bBash\b(?!\()/);
+  assert.match(cmd, /--tools Read,Glob,Grep,Bash(\s|$)/);
+  assert.doesNotMatch(cmd, /--tools \S*\b(Edit|Write)\b/);
   assert.doesNotMatch(cmd, /acceptEdits/);
 });

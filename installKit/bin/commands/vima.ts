@@ -19,13 +19,17 @@ export async function runVima({
   args,
   stateDir,
   repoRoot,
-  config,
+  config: baseConfig,
+  personaContent = null,
 }: {
   args: string[];
   stateDir: string;
   repoRoot: string;
   config: VimaConfig;
+  personaContent?: string | null;
 }): Promise<void> {
+  // Runs started from here are the ones Elaia starts: they get the persona too.
+  const config = { ...baseConfig, personaContent };
   assertKnownFlags(args, VIMA_FLAGS, VIMA_USAGE);
   const json = args.includes('--json');
   // A restart reports on stderr as it goes, so there is no one result to print.

@@ -1,8 +1,15 @@
 import crypto from 'node:crypto';
 import { glafkaCli } from '../../util/cli.js';
 import { portsLine } from '../../util/portsLine.js';
+import { contextSections } from '../../memory/context.js';
 import type { Criterion } from '../../ticket/criteria.js';
 import type { Ticket } from '../../types/ticket.js';
+
+// A person reads the QA report, so style applies. It must never touch a result or its evidence.
+const VERIFY_PERSONA_INTRO = `This shapes ONLY the text a person reads: your final answer. It never
+changes a result, a command you run, or the --evidence you record: those stay exact.
+
+Follow this style:`;
 
 // The QA tester's brief. Only the spawned copy carries the token,
 // so a pasted brief can never record a trusted pass.
@@ -13,6 +20,7 @@ export function buildVerifyPrompt({
   ports,
   cli = 'glafka',
   token = null,
+  personaContent = null,
 }: {
   ticketId: string;
   criteria: Criterion[];
@@ -20,6 +28,7 @@ export function buildVerifyPrompt({
   ports: string | null;
   cli?: string;
   token?: string | null;
+  personaContent?: string | null;
 }): string {
   const record =
     `${cli} epalitheusis ${ticketId} --ac <AC-n> --result pass|fail|cannot ` +
@@ -51,6 +60,7 @@ If the app does not answer, record \`cannot\` with what you saw.`,
 
 Quote --evidence as one argument. Never start --evidence with '--'.
 Record every criterion, then stop. Do not fix anything.`,
+    ...contextSections({ personaContent, personaIntro: VERIFY_PERSONA_INTRO }, ['personaContent']),
   ];
   return sections.join('\n\n') + '\n';
 }
@@ -70,11 +80,13 @@ export function prepareVerify({
   repoRoot,
   criteria,
   checkMade = [],
+  personaContent = null,
 }: {
   ticket: Ticket;
   repoRoot: string;
   criteria: Criterion[];
   checkMade?: string[];
+  personaContent?: string | null;
 }): VerifyPrepared {
   if (!ticket.worktree) throw new Error(`ticket ${ticket.id} has no worktree — nothing to verify`);
   const token = crypto.randomBytes(16).toString('hex');
@@ -84,6 +96,7 @@ export function prepareVerify({
     worktree: ticket.worktree,
     ports: portsLine({ port: ticket.port, isolationPorts: ticket.isolationPorts }),
     cli: glafkaCli(repoRoot),
+    personaContent,
   };
   return {
     token,

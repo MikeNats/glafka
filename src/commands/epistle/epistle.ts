@@ -40,10 +40,7 @@ import {
 import type { Ticket } from '../../types/ticket.js';
 import { DOCS_ROOT, isTidyDoc } from '../../memory/docsStore.js';
 import { odysseUpdate as odysseUpdateDefault } from '../odysse/odysse.js';
-import {
-  cbmAvailable as cbmAvailableDefault,
-  cbmQuery as cbmQueryDefault,
-} from '../../memory/cbm.js';
+import { cbmAvailable as cbmAvailableDefault } from '../../memory/cbm.js';
 import { VERDICT_SOURCE } from '../ergon/ergon.js';
 import { assertNoLiveRun } from '../../ticket/background.js';
 import {
@@ -70,7 +67,8 @@ const BYPASS_NOTE: Readonly<Record<string, string>> = Object.freeze({
 export interface EpistleResult {
   ticket: Ticket;
   docSyncPrompt: string | null;
-  odysseUpdatePrompt: string;
+  // Null when the code graph is installed: there are no map docs to update.
+  odysseUpdatePrompt: string | null;
   hostExec: string | null;
   auditDue: { due: boolean; count: number; grown: number };
   // Everything `epistlePush` needs to finish the job, carried across the tidy
@@ -141,7 +139,6 @@ export function epistlePrepare({
   checksCmd = null,
   e2eCmd = null,
   cbmAvailable = cbmAvailableDefault,
-  cbmQuery = cbmQueryDefault,
   odysseUpdate = odysseUpdateDefault,
 }: {
   stateDir: string;
@@ -156,7 +153,6 @@ export function epistlePrepare({
   createPr?: typeof createPullRequest;
   findOpenPr?: typeof openPullRequestForBranch;
   cbmAvailable?: typeof cbmAvailableDefault;
-  cbmQuery?: typeof cbmQueryDefault;
   odysseUpdate?: typeof odysseUpdateDefault;
 }): EpistleResult {
   const ticket = readTicket(stateDir, id);
@@ -389,31 +385,16 @@ export function epistlePrepare({
     });
   }
 
-  // When codebase-memory-mcp is installed, detect_changes gives the same
-  // information instantly. Falls back to odysseUpdate on CBM failure so a
-  // broken install never blocks a push.
-  let odysseUpdatePrompt: string;
-  if (cbmAvailable()) {
-    try {
-      odysseUpdatePrompt = cbmQuery(ticket.worktree, 'detect_changes', {
-        paths: paths.join(','),
-      });
-    } catch {
-      ({ prompt: odysseUpdatePrompt } = odysseUpdate({
+  // With the code graph there are no map docs to update: it re-reads the code itself.
+  // Null means no agent runs for it. Without the graph, an agent updates the docs as before.
+  const odysseUpdatePrompt = cbmAvailable()
+    ? null
+    : odysseUpdate({
         repoRoot: ticket.worktree,
         treeRoot: ticket.worktree,
         changedPaths: paths,
         diff: docDiff,
-      }));
-    }
-  } else {
-    ({ prompt: odysseUpdatePrompt } = odysseUpdate({
-      repoRoot: ticket.worktree,
-      treeRoot: ticket.worktree,
-      changedPaths: paths,
-      diff: docDiff,
-    }));
-  }
+      }).prompt;
 
   // Changed files that will run on YOUR machine, not in the cage.
   // Worth reading, but it does not block the push.
@@ -544,7 +525,7 @@ export async function epistle({
   runTidy?: (prompts: {
     ticket: Ticket;
     docSyncPrompt: string | null;
-    odysseUpdatePrompt: string;
+    odysseUpdatePrompt: string | null;
     auditDue: { due: boolean; count: number; grown: number };
   }) => void | Promise<void>;
 }): Promise<EpistleResult & { tidyCommitted: string[]; prUpdated: boolean }> {

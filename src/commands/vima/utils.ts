@@ -27,7 +27,10 @@ export type VimaConfig = Pick<
   | 'observability'
   // vima dispatches reviewers too, so it needs whatever the reviewer prompt reads.
   | 'reviewDoc'
->;
+> & {
+  // How you want reports written. Null when no persona is on.
+  personaContent?: string | null;
+};
 
 // The result of one step for one ticket. It is one flat shape, because
 // callers read its fields directly. Some fields are set only sometimes.
@@ -81,6 +84,7 @@ export async function spawnCoder({
       policy,
       checksCmd: config.checksCmd,
       e2eCmd: config.e2eCmd,
+      personaContent: config.personaContent ?? null,
       // The tick this runs inside already ensured the app, with its own much
       // shorter wait. Ensuring again costs the tick a second one.
       ensureApp: false,

@@ -111,7 +111,7 @@ async function tidyUp({
 }: {
   ticket: Ticket;
   docSyncPrompt: string | null;
-  odysseUpdatePrompt: string;
+  odysseUpdatePrompt: string | null;
   auditDue: { due: boolean; count: number; grown: number };
   repoRoot: string;
   stateDir: string;
@@ -137,17 +137,20 @@ async function tidyUp({
     });
   }
 
-  console.error(`--- ${ticket.id}: updating architecture docs for what this ticket touched ---`);
-  await deliverPrompt(odysseUpdatePrompt, {
-    cwd,
-    policy,
-    stateDir,
-    agentCmd,
-    ticketId: ticket.id,
-    stage: AUDIT_STAGES.EPISTLE,
-    role: ROLES.REPORTER,
-    observability: config.observability.enabled,
-  });
+  // The code graph re-reads the code itself, so with it there are no map docs to update.
+  if (odysseUpdatePrompt) {
+    console.error(`--- ${ticket.id}: updating architecture docs for what this ticket touched ---`);
+    await deliverPrompt(odysseUpdatePrompt, {
+      cwd,
+      policy,
+      stateDir,
+      agentCmd,
+      ticketId: ticket.id,
+      stage: AUDIT_STAGES.EPISTLE,
+      role: ROLES.REPORTER,
+      observability: config.observability.enabled,
+    });
+  }
 
   // The ethos audit writes proposals to state, never to a doc, so nothing it does needs committing.
   // Proposals nobody has decided on yet: running the pass again would spend a

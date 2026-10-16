@@ -15,6 +15,7 @@ import { shellArgv, shellPath } from '../util/shell.js';
 import { readTicketEnv } from './resources/ticketEnv.js';
 import { agentName, SESSION_AGENT } from '../audit/parseUsage.js';
 import { withUsageFlags } from '../audit/usageFlags.js';
+import { withLeanStart } from '../util/leanStart.js';
 import { recordBackgroundRun } from '../audit/recordRun.js';
 import { isRole } from '../types/ticket.js';
 
@@ -134,7 +135,7 @@ export function spawnBackground({
   let guardrails: BackgroundGuardrailsInfo = { backend: 'none', note: 'no policy passed' };
   // Only the argv changes. Everything downstream that identifies the agent —
   // the cage, the credential mapping — still reads the command you configured.
-  let argv = shellArgv(withUsageFlags(agentCmd));
+  let argv = shellArgv(withLeanStart(withUsageFlags(agentCmd), role));
 
   if (policy) {
     if (!cwd) {

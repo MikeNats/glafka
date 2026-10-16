@@ -193,7 +193,7 @@ Terminal only (`glafka <command>`). The agent runs these in its own shell:
 | `.glafka/`            | A copy of the glafka program for this project. Git-ignored. |
 | `docs/glafka/skills/` | The steps each command gives the agent. Commit it.          |
 | One folder per agent  | The glafka commands, plus a `glafka-coder` subagent.        |
-| `.gitignore`          | Adds `.glafka/`, `.worktrees/` and `.env.glafka`.           |
+| `.gitignore`          | Adds `.glafka/`, `.worktrees/`, `.env.glafka`, `.elaia/`.   |
 | `.glafka.json`        | The agent commands glafka starts.                           |
 
 - Copilot gets `.github/skills/` and no `glafka-coder`.
@@ -211,6 +211,9 @@ Terminal only (`glafka <command>`). The agent runs these in its own shell:
     then win over a default.
 - `--with-standards` also adds review lanes and starter rules. See
   [Engineering standards](#engineering-standards).
+- It also installs the code graph tool, `codebase-memory-mcp` 0.12.0, in
+  `~/.glafka/tools/`. See [Map the project](#map-the-project). Skip it with
+  `--no-code-graph`.
 
 **Upgrade:**
 
@@ -224,7 +227,18 @@ up to 90 seconds each.
 
 ### Map the project
 
-`/glafka:odysse` writes:
+**With the code graph** (installed by default):
+
+- `odysse` indexes the code in seconds, with no AI. Nothing is written to
+  `docs/glafka/architecture/`.
+- Each agent's prompt gets the part it needs: the planner an overview, the
+  coder the outline of its files, the reviewer what the change touches.
+- The tool is [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
+  by DeusData: free, MIT. glafka downloads one pinned release (about 50 MB),
+  checks its published SHA-256, and never runs its own installer.
+- If it is missing or fails, glafka uses the AI-written map below.
+
+**Without it**, `/glafka:odysse` writes:
 
 - a codebase map: one doc per folder that matters, plus an index at
   `docs/glafka/architecture/README.md`.
@@ -579,10 +593,10 @@ checked.
 ```json
 {
   "agents": {
-    "coder": "claude -p --permission-mode acceptEdits --allowedTools 'Read,Write,Edit,Glob,Grep,Bash(npm test),Bash(git add:*),Bash(git commit:*),Bash(glafka:*)'",
-    "reviewer": "claude -p --permission-mode acceptEdits --allowedTools 'Read,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(glafka:*)'",
-    "reporter": "claude -p --permission-mode acceptEdits --allowedTools 'Read,Write,Edit,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(glafka:*)'",
-    "verifier": "claude -p --allowedTools 'Read,Glob,Grep,Bash' --disallowedTools 'Edit,Write,NotebookEdit'"
+    "coder": "claude -p --permission-mode acceptEdits --allowedTools Read,Edit,Write,Glob,Grep,Bash",
+    "reviewer": "claude -p --allowedTools Read,Glob,Grep,Bash",
+    "reporter": "claude -p --permission-mode acceptEdits --allowedTools Read,Edit,Write,Glob,Grep,Bash",
+    "verifier": "claude -p --allowedTools Read,Glob,Grep,Bash"
   },
   "checksCmd": "npm test",
   "baseRef": "main",
@@ -593,6 +607,11 @@ checked.
 - Agent commands must work with nobody watching. A bare `claude -p` asks for
   permission, nobody answers, and it exits as if it succeeded. Give rights
   with the agent's own flags.
+- glafka starts a `claude -p` agent lean. It gets only its role's tools, every
+  shell command except a block list (push, `gh`, publish, deploy, `ssh`…), and
+  no personal settings, plugins, skills or MCP servers. Project settings and
+  the project's `CLAUDE.md` still load. Set one of these flags yourself
+  (`--tools`, `--allowedTools`, `--setting-sources`, …) and glafka keeps yours.
 - The `reporter` does not run check commands: `odysse --checks` only finds
   them. The `verifier` needs a shell, but must not edit files: a worktree
   change makes its QA round untrusted.

@@ -7,9 +7,6 @@ import {
   loadPromptContext,
   contextSections,
   architectureFreshness,
-  cbmArchitecture,
-  cbmFileOutlines,
-  cbmBlastRadius,
   loadPromptContextFor,
 } from '../../src/memory/context.js';
 import type { CbmExec, CbmOpts } from '../../src/memory/cbm.js';
@@ -289,11 +286,17 @@ test('instruction files are detected, not assumed', () => {
   assert.equal(agentInstructionFileList(repoRoot), 'CLAUDE.md and GEMINI.md');
 });
 
-// --- CBM per-consumer query helpers ---
+// --- A fake code graph tool ---
+
+// It answers like the real one: the index call says "indexed", then the question gets `result`.
+function graphAnswering(answer: (args: string[]) => string): CbmOpts {
+  const exec: CbmExec = (_bin, args) =>
+    args.includes('index_repository') ? '{"status":"indexed"}' : answer(args);
+  return { exec };
+}
 
 function cbmPresent(result: string): CbmOpts {
-  const exec: CbmExec = (_bin, _args) => result;
-  return { exec };
+  return graphAnswering(() => result);
 }
 
 function cbmAbsent(): CbmOpts {
@@ -304,82 +307,6 @@ function cbmAbsent(): CbmOpts {
   };
   return { exec };
 }
-
-test('cbmArchitecture — CBM present → returns get_architecture output', () => {
-  const repoRoot = tempDir();
-  const opts = cbmPresent('## Architecture\ngraph data');
-  const result = cbmArchitecture(repoRoot, opts);
-  assert.equal(result, '## Architecture\ngraph data');
-});
-
-test('cbmArchitecture — CBM absent, README exists → returns README content', () => {
-  const repoRoot = tempDir();
-  writeDoc(architectureIndexPath(repoRoot), '# Map from README\n');
-  const result = cbmArchitecture(repoRoot, cbmAbsent());
-  assert.match(result!, /Map from README/);
-});
-
-test('cbmArchitecture — CBM absent, no README → returns null', () => {
-  const repoRoot = tempDir();
-  const result = cbmArchitecture(repoRoot, cbmAbsent());
-  assert.equal(result, null);
-});
-
-test('cbmFileOutlines — CBM present, files given → concatenated outlines', () => {
-  const repoRoot = tempDir();
-  const calls: string[] = [];
-  const exec: CbmExec = (_bin, args) => {
-    if (args.includes('--help')) return '';
-    const pathArg = args[args.indexOf('--path') + 1]!;
-    calls.push(pathArg);
-    return `outline of ${pathArg}\n`;
-  };
-  const result = cbmFileOutlines(repoRoot, ['src/a.ts', 'src/b.ts'], { exec });
-  assert.equal(result, 'outline of src/a.ts\noutline of src/b.ts');
-  assert.deepEqual(calls, ['src/a.ts', 'src/b.ts']);
-});
-
-test('cbmFileOutlines — CBM present, empty files → falls back to get_architecture', () => {
-  const repoRoot = tempDir();
-  const opts = cbmPresent('architecture fallback');
-  const result = cbmFileOutlines(repoRoot, [], opts);
-  assert.equal(result, 'architecture fallback');
-});
-
-test('cbmFileOutlines — CBM absent, README exists → returns README', () => {
-  const repoRoot = tempDir();
-  writeDoc(architectureIndexPath(repoRoot), '# Fallback map\n');
-  const result = cbmFileOutlines(repoRoot, ['src/a.ts'], cbmAbsent());
-  assert.match(result!, /Fallback map/);
-});
-
-test('cbmBlastRadius — CBM present, paths given → returns detect_changes output', () => {
-  const repoRoot = tempDir();
-  const calls: Record<string, string>[] = [];
-  const exec: CbmExec = (_bin, args) => {
-    if (args.includes('--help')) return '';
-    const pathsIdx = args.indexOf('--paths');
-    calls.push({ paths: args[pathsIdx + 1]! });
-    return 'blast radius summary\n';
-  };
-  const result = cbmBlastRadius(repoRoot, ['src/a.ts', 'src/b.ts'], { exec });
-  assert.equal(result, 'blast radius summary');
-  assert.equal(calls[0]!.paths, 'src/a.ts,src/b.ts');
-});
-
-test('cbmBlastRadius — CBM present, empty paths → falls back to get_architecture', () => {
-  const repoRoot = tempDir();
-  const opts = cbmPresent('architecture fallback');
-  const result = cbmBlastRadius(repoRoot, [], opts);
-  assert.equal(result, 'architecture fallback');
-});
-
-test('cbmBlastRadius — CBM absent, README exists → returns README', () => {
-  const repoRoot = tempDir();
-  writeDoc(architectureIndexPath(repoRoot), '# Blast fallback\n');
-  const result = cbmBlastRadius(repoRoot, ['src/a.ts'], cbmAbsent());
-  assert.match(result!, /Blast fallback/);
-});
 
 // --- loadPromptContextFor per-consumer dispatcher ---
 
@@ -417,31 +344,38 @@ test('loadPromptContextFor — plan consumer, CBM present', () => {
 
 test('loadPromptContextFor — coder consumer with files', () => {
   const repoRoot = tempDir();
-  const exec: CbmExec = (_bin, args) => {
-    if (args.includes('--help')) return '';
+  const asked: string[][] = [];
+  const cbmOpts = graphAnswering((args) => {
+    asked.push(args);
     return 'file outline data\n';
-  };
+  });
   const ctx = loadPromptContextFor({
     consumer: 'coder',
     repoRoot,
     files: ['src/a.ts'],
-    cbmOpts: { exec },
+    cbmOpts,
   });
+  const outline = asked.find((args) => args.includes('get_file_outline'))!;
+  assert.equal(outline[outline.indexOf('--file-path') + 1], 'src/a.ts');
   assert.equal(ctx.architectureIndex, 'file outline data');
 });
 
 test('loadPromptContextFor — reviewer consumer with changed paths', () => {
   const repoRoot = tempDir();
-  const exec: CbmExec = (_bin, args) => {
-    if (args.includes('--help')) return '';
+  const asked: string[][] = [];
+  const cbmOpts = graphAnswering((args) => {
+    asked.push(args);
     return 'blast radius data\n';
-  };
+  });
   const ctx = loadPromptContextFor({
     consumer: 'reviewer',
     repoRoot,
     paths: ['src/a.ts'],
-    cbmOpts: { exec },
+    baseRef: 'main',
+    cbmOpts,
   });
+  const changes = asked.find((args) => args.includes('detect_changes'))!;
+  assert.equal(changes[changes.indexOf('--base-branch') + 1], 'main');
   assert.equal(ctx.architectureIndex, 'blast radius data');
 });
 

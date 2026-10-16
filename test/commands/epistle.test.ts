@@ -191,19 +191,21 @@ test(
       cbmAvailable: () => false,
     });
 
-    assert.match(result.odysseUpdatePrompt, /widget\.js/);
+    assert.match(result.odysseUpdatePrompt!, /widget\.js/);
     // The BRANCH's docs, not the main checkout's. The agent writes there and
     // the tidy commit puts the result in the pull request.
     assert.ok(
-      result.odysseUpdatePrompt.includes(`${ticket.worktree!}/docs/glafka/architecture`),
+      result.odysseUpdatePrompt!.includes(`${ticket.worktree!}/docs/glafka/architecture`),
       'the architecture docs to write are the ones on this branch',
     );
-    assert.ok(!result.odysseUpdatePrompt.includes(`${repoRoot}/docs/glafka/architecture`));
+    assert.ok(!result.odysseUpdatePrompt!.includes(`${repoRoot}/docs/glafka/architecture`));
   },
 );
 
+// The code graph re-reads the code itself. Sending its answer to an agent as if it were
+// instructions paid for a run that had nothing to update.
 test(
-  'CBM present: epistlePrepare uses cbmQuery instead of odysseUpdate',
+  'CBM present: no architecture-doc agent runs, and the doc sync is unchanged',
   { concurrency: true },
   async () => {
     const repoRoot = makeGitRepo();
@@ -221,67 +223,21 @@ test(
     execFileSync('git', ['commit', '-q', '-m', 'add widget.js'], { cwd: ticket.worktree! });
 
     let odysseUpdateCalled = false;
-    let cbmQueryArgs: { tool: string; args: Record<string, string> } | null = null;
-
     const result = epistlePrepare({
       unreviewed: true,
       stateDir,
       id: ticket.id,
       repoRoot,
       cbmAvailable: () => true,
-      cbmQuery: (_repoRoot: string, tool: string, args: Record<string, string>) => {
-        cbmQueryArgs = { tool, args };
-        return 'CBM: changes detected in widget.js';
-      },
       odysseUpdate: () => {
         odysseUpdateCalled = true;
         return { prompt: 'should not be used' };
       },
     });
 
-    assert.equal(result.odysseUpdatePrompt, 'CBM: changes detected in widget.js');
-    assert.equal(
-      odysseUpdateCalled,
-      false,
-      'odysseUpdate must not be called when CBM is available',
-    );
-    assert.equal(cbmQueryArgs!.tool, 'detect_changes');
-    assert.ok(cbmQueryArgs!.args.paths.includes('widget.js'));
-    // AC-5: buildDocSyncPrompt is unchanged in the CBM path.
+    assert.equal(result.odysseUpdatePrompt, null);
+    assert.equal(odysseUpdateCalled, false);
     assert.match(result.docSyncPrompt!, /plan\.md/);
-  },
-);
-
-test(
-  'CBM present but cbmQuery throws: epistlePrepare falls back to odysseUpdate',
-  { concurrency: true },
-  async () => {
-    const repoRoot = makeGitRepo();
-    addBareRemote(repoRoot);
-    const stateDir = tempStateDir();
-    const ticket = await genesis({ repoRoot, stateDir, content: 'add a widget' });
-
-    fs.writeFileSync(path.join(ticket.worktree!, 'widget.js'), 'export const widget = 1;\n');
-    execFileSync('git', ['add', 'widget.js'], { cwd: ticket.worktree! });
-    execFileSync('git', ['commit', '-q', '-m', 'add widget.js'], { cwd: ticket.worktree! });
-
-    const result = epistlePrepare({
-      unreviewed: true,
-      stateDir,
-      id: ticket.id,
-      repoRoot,
-      cbmAvailable: () => true,
-      cbmQuery: () => {
-        throw new Error('codebase-memory-mcp crashed');
-      },
-    });
-
-    // Falls back to odysseUpdate output.
-    assert.match(result.odysseUpdatePrompt, /widget\.js/);
-    assert.ok(
-      result.odysseUpdatePrompt.includes(`${ticket.worktree!}/docs/glafka/architecture`),
-      'falls back to the odysseUpdate prompt when cbmQuery throws',
-    );
   },
 );
 
@@ -295,24 +251,17 @@ test('CBM absent: epistlePrepare uses odysseUpdate as before', { concurrency: tr
   execFileSync('git', ['add', 'widget.js'], { cwd: ticket.worktree! });
   execFileSync('git', ['commit', '-q', '-m', 'add widget.js'], { cwd: ticket.worktree! });
 
-  let cbmQueryCalled = false;
-
   const result = epistlePrepare({
     unreviewed: true,
     stateDir,
     id: ticket.id,
     repoRoot,
     cbmAvailable: () => false,
-    cbmQuery: () => {
-      cbmQueryCalled = true;
-      return '';
-    },
   });
 
-  assert.equal(cbmQueryCalled, false, 'cbmQuery must not be called when CBM is absent');
-  assert.match(result.odysseUpdatePrompt, /widget\.js/);
+  assert.match(result.odysseUpdatePrompt!, /widget\.js/);
   assert.ok(
-    result.odysseUpdatePrompt.includes(`${ticket.worktree!}/docs/glafka/architecture`),
+    result.odysseUpdatePrompt!.includes(`${ticket.worktree!}/docs/glafka/architecture`),
     'falls back to the odysseUpdate prompt',
   );
 });

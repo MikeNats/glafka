@@ -7,9 +7,9 @@
 // A reviewer reads and reports. It must not be able to edit, so where a CLI can express that, it
 // does. These are candidates, not knowledge: whichever one is picked is run before it is believed,
 // so an entry that is wrong for a tool's current flags costs a failed probe and nothing else.
+// For claude, every shell command is allowed: glafka adds a block list when it starts the run.
 const CANDIDATE_REVIEWER_CMD: Record<string, string> = {
-  claude:
-    "claude -p --permission-mode acceptEdits --allowedTools 'Read,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(glafka:*)'",
+  claude: 'claude -p --allowedTools Read,Glob,Grep,Bash',
   cursor: 'cursor-agent -p --force',
   gemini: 'gemini --yolo -p',
   opencode: 'opencode run',
@@ -27,8 +27,7 @@ const CANDIDATE_REVIEWER_CMD: Record<string, string> = {
 // reporter given it is refused every write and exits 0 — which glafka records as a finished run,
 // the exact failure the probe exists to prevent.
 const CANDIDATE_REPORTER_CMD: Record<string, string> = {
-  claude:
-    "claude -p --permission-mode acceptEdits --allowedTools 'Read,Write,Edit,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(glafka:*)'",
+  claude: 'claude -p --permission-mode acceptEdits --allowedTools Read,Edit,Write,Glob,Grep,Bash',
   cursor: 'cursor-agent -p --force',
   gemini: 'gemini --yolo -p',
   opencode: 'opencode run',
@@ -36,11 +35,10 @@ const CANDIDATE_REPORTER_CMD: Record<string, string> = {
   github: 'copilot -p --allow-all-tools',
 };
 
-// A verifier (QA tester) runs curl and the project's CLI, so it gets every shell command. The claude
-// one drops the edit TOOLS, but its shell can still write: only the worktree check catches an edit.
+// A verifier (QA tester) runs curl and the project's CLI, so it gets every shell command. glafka
+// starts claude with no edit tools, but its shell can still write: only the worktree check catches it.
 const CANDIDATE_VERIFIER_CMD: Record<string, string> = {
-  claude:
-    "claude -p --allowedTools 'Read,Glob,Grep,Bash' --disallowedTools 'Edit,Write,NotebookEdit'",
+  claude: 'claude -p --allowedTools Read,Glob,Grep,Bash',
   cursor: 'cursor-agent -p --force',
   gemini: 'gemini --yolo -p',
   opencode: 'opencode run',

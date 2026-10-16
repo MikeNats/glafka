@@ -8,15 +8,18 @@ import { verifierSetupSkip } from '../../../src/commands/install/verifierSetup.j
 import { seedStandards } from '../../../src/commands/install/seedStandards.js';
 import type { SeedResult } from '../../../src/commands/install/seedStandards.js';
 import { STANDARDS_DIR } from '../../../src/memory/standards.js';
+import { installCodeGraph } from '../../../src/commands/install/codeGraph.js';
 
 // Every flag this command reads. Anything else is a typo, and a typo used to be
 // silently ignored — sometimes into a different action entirely.
-const INSTALL_FLAGS = ['--all', '--with-standards'];
+const INSTALL_FLAGS = ['--all', '--with-standards', '--no-code-graph'];
 const INSTALL_USAGE =
   `usage: glafka install <platform> …\n` +
   `       glafka install --all              every supported platform\n` +
   `       glafka install <platform> --with-standards\n` +
-  `                                         also seed engineering standards\n\n` +
+  `                                         also seed engineering standards\n` +
+  `       glafka install <platform> --no-code-graph\n` +
+  `                                         skip the code map tool (codebase-memory-mcp)\n\n` +
   `platforms: ${KNOWN_PLATFORMS.join(', ')}`;
 
 // What `--with-standards` did, in words. Opt-in, so silence when the flag is absent is correct —
@@ -233,6 +236,8 @@ export function runInstall({
   // glafka must not guess, so a bare `glafka install` asks instead of picking.
   const all = args.includes('--all');
   const withStandards = args.includes('--with-standards');
+  // On by default: a code map with no AI. Skipped only when someone asks.
+  const withCodeGraph = !args.includes('--no-code-graph');
   // Flags are not platform names. Passing one through would fail the unknown-platform check.
   const named = args.filter((arg) => !arg.startsWith('--'));
   if (!all && named.length === 0) throw new Error(INSTALL_USAGE);
@@ -270,6 +275,7 @@ export function runInstall({
   out.push(...verifierSection(repoRoot, stamped));
 
   out.push(...standardsOutput({ withStandards, repoRoot, packageRoot }));
+  if (withCodeGraph) out.push(...installCodeGraph());
 
   out.push(...startHereSection(stamped[0] ?? 'claude'));
 
