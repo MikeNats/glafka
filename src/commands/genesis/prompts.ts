@@ -37,7 +37,9 @@ there. Don't guess what you can read.`);
 
   // The known rules go in here too. They matter just as much
   // while writing a spec as they do while writing code.
-  sections.push(...contextSections(context, ['architectureIndex', 'ethosContent', 'proorismos']));
+  sections.push(
+    ...contextSections(context, ['architectureIndex', 'codeGraph', 'ethosContent', 'proorismos']),
+  );
 
   sections.push(`## Raw idea\n${content}`);
 
@@ -109,7 +111,7 @@ write any code yet — this step only produces the plan.`,
   ];
 
   // The plan names the files to change, so it needs the map most.
-  sections.push(...contextSections(context, ['architectureIndex']));
+  sections.push(...contextSections(context, ['architectureIndex', 'codeGraph']));
 
   sections.push(
     `## Approved spec

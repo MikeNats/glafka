@@ -2,6 +2,7 @@ import { readEthosDocs } from './ethos.js';
 import { loadCategories } from './categories.js';
 import { readArchitectureIndex, readProorismos, readArchitectureStamp } from './docsStore.js';
 import { commitsBetween } from '../util/git.js';
+import { codeGraphSection } from './codeGraphSection.js';
 import type { PromptContext } from '../types/promptContext.js';
 
 export { loadPromptContextFor } from './contextCbm.js';
@@ -43,6 +44,8 @@ const SECTIONS = Object.freeze({
     '```\n' +
     capLines(value, MAX_ARCHITECTURE_INDEX_LINES) +
     '\n```',
+  // The graph is a live tool, not a snapshot like the map above: the agent asks what it needs.
+  codeGraph: codeGraphSection,
   projectMemory: (value: string) => `## Project memory\n${value}`,
   // The one block the agent must obey. It used to arrive as a bare list under
   // "Known conventions", which reads as a note, not an instruction.

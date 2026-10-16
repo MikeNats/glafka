@@ -133,6 +133,7 @@ that is already running.`);
     ...contextSections({ ...context, personaIntro: ERGON_PERSONA_INTRO }, [
       'personaContent',
       'architectureIndex',
+      'codeGraph',
       'projectMemory',
       'ethosContent',
     ]),
@@ -472,12 +473,20 @@ const CONTEXT_FOR_KIND: Record<string, string[]> = {
   general: [
     'personaContent',
     'architectureIndex',
+    'codeGraph',
     'projectMemory',
     'ethosContent',
     'standards',
     'reviewDoc',
   ],
-  'general-paired': ['personaContent', 'projectMemory', 'ethosContent', 'standards', 'reviewDoc'],
+  'general-paired': [
+    'personaContent',
+    'codeGraph',
+    'projectMemory',
+    'ethosContent',
+    'standards',
+    'reviewDoc',
+  ],
   // The rules go to this reviewer too. The ARCHITECTURE and DESIGN
   // categories are its own subject, and it used to never see them.
   //
@@ -488,6 +497,7 @@ const CONTEXT_FOR_KIND: Record<string, string[]> = {
   architecture: [
     'personaContent',
     'architectureIndex',
+    'codeGraph',
     'projectMemory',
     'ethosContent',
     'reviewDoc',

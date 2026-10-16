@@ -52,13 +52,19 @@ function binFor(opts: CbmOpts): string {
 }
 
 // Never throws: a tool that will not even start means "use the markdown map".
-export function cbmAvailable(opts: CbmOpts = {}): boolean {
+export const cbmAvailable = (opts: CbmOpts = {}): boolean => cbmCommand(opts) !== null;
+
+// The binary to start, or null when none starts. Agents get it as their live graph tool.
+// GLAFKA_CODE_GRAPH=off turns the real tool off; a tool passed in by a test still answers.
+export function cbmCommand(opts: CbmOpts = {}): string | null {
+  if (!opts.exec && process.env.GLAFKA_CODE_GRAPH === 'off') return null;
   const exec = opts.exec ?? defaultExec;
+  const bin = binFor(opts);
   try {
-    exec(binFor(opts), ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    return true;
+    exec(bin, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    return bin;
   } catch {
-    return false;
+    return null;
   }
 }
 

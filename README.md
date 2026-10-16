@@ -233,6 +233,10 @@ up to 90 seconds each.
   `docs/glafka/architecture/`.
 - Each agent's prompt gets the part it needs: the planner an overview, the
   coder the outline of its files, the reviewer what the change touches.
+- A `claude` coder, reviewer or planner also gets the graph as a live tool
+  (`search_graph`, `trace_path`, `get_code_snippet`, `get_file_outline`…),
+  and is told to ask it before it greps or reads whole files.
+- `GLAFKA_CODE_GRAPH=off` turns the graph off without uninstalling it.
 - The tool is [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
   by DeusData: free, MIT. glafka downloads one pinned release (about 50 MB),
   checks its published SHA-256, and never runs its own installer.

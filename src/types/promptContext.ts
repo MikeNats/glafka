@@ -14,6 +14,8 @@ export interface PromptContext {
   proorismos: string | null;
   categories: readonly Category[];
   personaContent?: string | null;
+  // The code graph project the agent can ask live. Null when it has no graph tools.
+  codeGraph?: string | null;
   projectMemory?: string | null;
   // Reviewer-only. Loaded by the review path, never by the coder's — see
   // memory/standards.ts for why the two are kept apart.
