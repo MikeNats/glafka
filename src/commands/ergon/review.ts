@@ -416,7 +416,13 @@ async function prepareReview({
       routeNote: `review clean — a QA tester checks ${gate.criteria.length} acceptance criteria`,
       prompt: '',
       reviewerPrompt: '',
-      verify: prepareVerify({ ticket, repoRoot, criteria: gate.criteria, checkMade }),
+      verify: prepareVerify({
+        ticket,
+        repoRoot,
+        criteria: gate.criteria,
+        checkMade,
+        personaContent,
+      }),
     };
   }
   if (qaNext && gate.kind === 'blocked') {
@@ -465,6 +471,7 @@ async function prepareReview({
       repoRoot,
       worktree: ticket.worktree,
       paths: changed,
+      baseRef,
     }),
     personaContent,
     standards: readStandards(repoRoot),

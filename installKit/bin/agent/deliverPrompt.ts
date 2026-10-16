@@ -11,6 +11,7 @@ import { shellArgv } from '../../../src/util/shell.js';
 import { startRun, recordHandover } from '../../../src/audit/recordRun.js';
 import { AUDIT_STAGES, type AuditStage } from '../../../src/audit/record.js';
 import { withUsageFlags } from '../../../src/audit/usageFlags.js';
+import { withLeanStart } from '../../../src/util/leanStart.js';
 import { logText } from '../../../src/audit/logText.js';
 import { ROLES, type Role } from '../../../src/types/ticket.js';
 import { nativeCoderSubagents } from './nativeSubagent.js';
@@ -212,10 +213,9 @@ export async function deliverPrompt(
     return false;
   }
 
-  // Asks claude for the machine output that carries its token counts, exactly
-  // as the background path does. Every other agent, and anything with a pipe
-  // or an output format of its own, comes back untouched.
-  let argv = shellArgv(withUsageFlags(agentCmd));
+  // Asks claude for the machine output that carries its token counts, and starts it lean, exactly
+  // as the background path does. Every other agent, and anything with a pipe, comes back untouched.
+  let argv = shellArgv(withLeanStart(withUsageFlags(agentCmd), role));
   let env: NodeJS.ProcessEnv = process.env;
   // Held out here so the finally at the bottom can remove it.
   // Null when no policy was passed, because then none is ever made.

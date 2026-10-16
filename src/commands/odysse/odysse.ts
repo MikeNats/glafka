@@ -8,10 +8,11 @@ import {
   buildOdysseUpdatePrompt,
   buildChecksProbePrompt,
 } from './prompts.js';
-import { cbmAvailable, cbmIndexRepository } from '../../memory/cbm.js';
+import { cbmAvailable, cbmIndexRepository, CbmError } from '../../memory/cbm.js';
 
+// `cbmError` says why an installed code graph was not used, so the fallback is never silent.
 export type OdysseResult =
-  { prompt: null; cbmIndexed: true } | { prompt: string; cbmIndexed: false };
+  { prompt: null; cbmIndexed: true } | { prompt: string; cbmIndexed: false; cbmError?: string };
 
 export interface CbmFns {
   available: () => boolean;
@@ -22,9 +23,15 @@ export interface CbmFns {
 // Prefers codebase-memory-mcp when present; falls back to the LLM prompt.
 export function odysse({ repoRoot, cbm }: { repoRoot: string; cbm?: CbmFns }): OdysseResult {
   const fns: CbmFns = cbm ?? { available: cbmAvailable, indexRepository: cbmIndexRepository };
+  let cbmError: string | undefined;
   if (fns.available()) {
-    fns.indexRepository(repoRoot);
-    return { prompt: null, cbmIndexed: true };
+    try {
+      fns.indexRepository(repoRoot);
+      return { prompt: null, cbmIndexed: true };
+    } catch (err) {
+      if (!(err instanceof CbmError)) throw err;
+      cbmError = err.message;
+    }
   }
   const tree = formatFileTree(listProjectFiles(repoRoot));
   const prompt = buildOdysseFullPrompt({
@@ -33,7 +40,7 @@ export function odysse({ repoRoot, cbm }: { repoRoot: string; cbm?: CbmFns }): O
     categories: loadCategories(repoRoot),
     cli: glafkaCli(repoRoot),
   });
-  return { prompt, cbmIndexed: false };
+  return cbmError ? { prompt, cbmIndexed: false, cbmError } : { prompt, cbmIndexed: false };
 }
 
 // Only covers what a ticket touched.

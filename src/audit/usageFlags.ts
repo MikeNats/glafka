@@ -33,12 +33,16 @@ function hasShellOperator(command: string): boolean {
   return false;
 }
 
+// One plain `claude -p` command, safe to add flags to. Anything else is left as written.
+export function isClaudePrint(agentCmd: string): boolean {
+  if (hasShellOperator(agentCmd)) return false;
+  return agentName(agentCmd) === CLAUDE && PRINT_FLAG.test(agentCmd);
+}
+
 // Adds what a background run needs to report its token usage, when it is safe
 // to add. Anything unrecognised comes back untouched.
 export function withUsageFlags(agentCmd: string): string {
-  if (hasShellOperator(agentCmd)) return agentCmd;
-  if (agentName(agentCmd) !== CLAUDE) return agentCmd;
-  if (!PRINT_FLAG.test(agentCmd)) return agentCmd;
+  if (!isClaudePrint(agentCmd)) return agentCmd;
   // Already asked for an output format of its own. That choice wins.
   if (agentCmd.includes('--output-format')) return agentCmd;
   return `${agentCmd} ${USAGE_FLAGS}`;

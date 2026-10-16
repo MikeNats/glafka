@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CbmError, cbmAvailable, cbmIndexRepository, cbmQuery } from '../../src/memory/cbm.js';
+import {
+  CbmError,
+  cbmAvailable,
+  cbmIndexRepository,
+  cbmQuery,
+  cbmProject,
+} from '../../src/memory/cbm.js';
 import type { CbmExec } from '../../src/memory/cbm.js';
 
 test('CbmError has the right name and is an Error', () => {
@@ -26,35 +32,30 @@ test('cbmAvailable returns false when the binary is not on PATH', () => {
   assert.equal(cbmAvailable({ exec }), false);
 });
 
-test('cbmAvailable throws CbmError on unexpected failures', () => {
+test('cbmAvailable says false on any other failure too: then the markdown map is used', () => {
   const exec: CbmExec = () => {
     const err = new Error('permission denied') as Error & { stderr: string };
     err.stderr = 'permission denied';
     throw err;
   };
-  assert.throws(
-    () => cbmAvailable({ exec }),
-    (err: unknown) => {
-      assert.ok(err instanceof CbmError);
-      assert.match(err.message, /permission denied/);
-      return true;
-    },
-  );
+  assert.equal(cbmAvailable({ exec }), false);
 });
 
 // --- cbmIndexRepository ---
 
-test('cbmIndexRepository calls the binary with index_repository and the repo root', () => {
+test('cbmIndexRepository runs the real cli form, with a project name of its own', () => {
   const calls: { bin: string; args: string[] }[] = [];
   const exec: CbmExec = (bin, args) => {
     calls.push({ bin, args: [...args] });
-    return '';
+    return '{"status":"indexed"}';
   };
-  cbmIndexRepository('/my/repo', { exec });
+  cbmIndexRepository('/my/repo', { exec, home: '/no/such/home' });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.bin, 'codebase-memory-mcp');
-  assert.ok(calls[0]!.args.includes('index_repository'));
-  assert.ok(calls[0]!.args.includes('/my/repo'));
+  const args = calls[0]!.args;
+  assert.deepEqual(args.slice(0, 3), ['cli', '--quiet', 'index_repository']);
+  assert.equal(args[args.indexOf('--repo-path') + 1], '/my/repo');
+  assert.equal(args[args.indexOf('--name') + 1], cbmProject('/my/repo'));
 });
 
 test('cbmIndexRepository throws CbmError on non-zero exit', () => {
@@ -75,20 +76,20 @@ test('cbmIndexRepository throws CbmError on non-zero exit', () => {
 
 // --- cbmQuery ---
 
-test('cbmQuery returns stdout and passes tool name and args to the binary', () => {
-  const calls: { bin: string; args: string[] }[] = [];
-  const exec: CbmExec = (bin, args) => {
-    calls.push({ bin, args: [...args] });
-    return '{"nodes": 42}\n';
+test('cbmQuery refreshes the index, then asks about that project by name', () => {
+  const calls: string[][] = [];
+  const exec: CbmExec = (_bin, args) => {
+    calls.push([...args]);
+    return args.includes('index_repository') ? '{"status":"indexed"}' : '{"nodes": 42}\n';
   };
-  const result = cbmQuery('/my/repo', 'get_architecture', { detail_level: 'high' }, { exec });
+  const result = cbmQuery('/my/repo-a', 'get_architecture', { aspects: '["overview"]' }, { exec });
   assert.equal(result, '{"nodes": 42}');
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.bin, 'codebase-memory-mcp');
-  assert.ok(calls[0]!.args.includes('get_architecture'));
-  assert.ok(calls[0]!.args.includes('/my/repo'));
-  assert.ok(calls[0]!.args.includes('--detail_level'));
-  assert.ok(calls[0]!.args.includes('high'));
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0]!.includes('index_repository'));
+  const query = calls[1]!;
+  assert.deepEqual(query.slice(0, 3), ['cli', '--quiet', 'get_architecture']);
+  assert.equal(query[query.indexOf('--project') + 1], cbmProject('/my/repo-a'));
+  assert.equal(query[query.indexOf('--aspects') + 1], '["overview"]');
 });
 
 test('cbmQuery throws CbmError on non-zero exit', () => {
@@ -98,7 +99,7 @@ test('cbmQuery throws CbmError on non-zero exit', () => {
     throw err;
   };
   assert.throws(
-    () => cbmQuery('/my/repo', 'bad_tool', {}, { exec }),
+    () => cbmQuery('/my/repo-b', 'bad_tool', {}, { exec }),
     (err: unknown) => {
       assert.ok(err instanceof CbmError);
       assert.match(err.message, /unknown tool/);

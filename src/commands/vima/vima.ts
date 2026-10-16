@@ -503,6 +503,7 @@ async function reviewOrVerify({
       checksTimeoutMs: config.checksTimeoutMs,
       e2eTimeoutMs: config.e2eTimeoutMs,
       reviewDoc: config.reviewDoc,
+      personaContent: config.personaContent ?? null,
     });
   } catch (err) {
     // It finished, committed nothing, and did not say why.

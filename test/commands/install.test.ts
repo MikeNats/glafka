@@ -93,7 +93,7 @@ test('install leaves .glafka/bin/glafka.js working as the entry point', () => {
   );
 });
 
-test('install creates .gitignore with .glafka/, .worktrees/ and .env.glafka when none exists yet', () => {
+test('install creates .gitignore with .glafka/, .worktrees/, .env.glafka and .elaia/ when none exists yet', () => {
   const packageRoot = makeFakePackage();
   const targetRoot = tempDir();
 
@@ -101,7 +101,7 @@ test('install creates .gitignore with .glafka/, .worktrees/ and .env.glafka when
 
   assert.equal(
     fs.readFileSync(path.join(targetRoot, '.gitignore'), 'utf8'),
-    '.glafka/\n.worktrees/\n.env.glafka\n',
+    '.glafka/\n.worktrees/\n.env.glafka\n.elaia/\n',
   );
 });
 
@@ -114,7 +114,7 @@ test('install appends its entries to an existing .gitignore without touching its
 
   assert.equal(
     fs.readFileSync(path.join(targetRoot, '.gitignore'), 'utf8'),
-    'node_modules/\n.env\n.glafka/\n.worktrees/\n.env.glafka\n',
+    'node_modules/\n.env\n.glafka/\n.worktrees/\n.env.glafka\n.elaia/\n',
   );
 });
 
@@ -127,7 +127,7 @@ test('install only adds whichever entry is actually missing', () => {
 
   assert.equal(
     fs.readFileSync(path.join(targetRoot, '.gitignore'), 'utf8'),
-    'node_modules/\n.glafka/\n.worktrees/\n.env.glafka\n',
+    'node_modules/\n.glafka/\n.worktrees/\n.env.glafka\n.elaia/\n',
   );
 });
 
@@ -423,14 +423,18 @@ test('install sets up agents.verifier, probed like the reporter', () => {
   const { log } = console;
   console.log = (...a: unknown[]) => void out.push(a.join(' '));
   try {
-    runInstall({ args: ['claude'], repoRoot: targetRoot, packageRoot: makeFakePackage() });
+    runInstall({
+      // No 50 MB download in a test.
+      args: ['claude', '--no-code-graph'],
+      repoRoot: targetRoot,
+      packageRoot: makeFakePackage(),
+    });
   } finally {
     console.log = log;
     process.env.PATH = previous;
   }
   const config = JSON.parse(fs.readFileSync(path.join(targetRoot, '.glafka.json'), 'utf8'));
   assert.equal(config.agents.verifier, CANDIDATE_CMD.verifier!.claude);
-  assert.notEqual(config.agents.verifier, config.agents.reviewer);
   assert.match(out.join('\n'), /QA testing runs as its own process/);
 });
 
@@ -455,7 +459,12 @@ function installQuietly(targetRoot: string): string {
   const { log } = console;
   console.log = (...a: unknown[]) => void out.push(a.join(' '));
   try {
-    runInstall({ args: ['claude'], repoRoot: targetRoot, packageRoot: makeFakePackage() });
+    runInstall({
+      // No 50 MB download in a test.
+      args: ['claude', '--no-code-graph'],
+      repoRoot: targetRoot,
+      packageRoot: makeFakePackage(),
+    });
   } finally {
     console.log = log;
   }

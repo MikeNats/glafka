@@ -205,8 +205,8 @@ function vendorCli(
 }
 
 // `.env.glafka` too: if the base branch does not ignore it, every ticket's PR
-// carries an extra commit that only edits .gitignore.
-const IGNORED_PATHS = ['.glafka/', '.worktrees/', TICKET_ENV_FILE];
+// carries an extra commit that only edits .gitignore. `.elaia/` holds the Elaia panel's chats.
+const IGNORED_PATHS = ['.glafka/', '.worktrees/', TICKET_ENV_FILE, '.elaia/'];
 
 // Only adds the missing lines. It never changes lines that are there.
 function ensureGitignored(targetRoot: string): void {

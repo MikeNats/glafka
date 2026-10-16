@@ -207,6 +207,11 @@ export async function runOdysse({
       console.error('\nodysse: indexed by codebase-memory-mcp');
       return;
     }
+    if (result.cbmError) {
+      console.error(
+        `odysse: the code graph failed (${result.cbmError}), so an agent writes the map`,
+      );
+    }
 
     const { policy } = resolvePolicy({ repoRoot });
     const ranAgent = await deliverPrompt(result.prompt, {
