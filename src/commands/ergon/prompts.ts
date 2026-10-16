@@ -165,17 +165,25 @@ that is already running.`);
   setup reserved for this ticket. Load it before you start a server, run a
   migration, or run the app, rather than using this project's normal defaults.`;
 
+  // Full checks once, at the end: after every step they cost a turn each, and their output is
+  // re-read on every later turn. The step's own tests still give the test-first feedback.
+  const stepTestsLine = `- Verify before moving on: after each step, run only the tests for that
+  step (the test files it wrote or changed) and see them pass. Do not run
+  the full checks after every step, even where a plan step says to — the
+  full checks run once, below. A claim with no evidence is not verification.`;
   const verifyLine = checksCmd
-    ? `- Verify before moving on: after each step, run exactly this and see it
-  exit 0 — \`${checksCmd}\`${e2eCmd ? ` (e2e is separate: \`${e2eCmd}\`, only if this step needs it)` : ''}.
-  Do not substitute your own command. This passing IS the definition of
-  done for a step — not "looks right", not a claim with no evidence.
-  Only then move to the next step.`
-    : `- Verify before moving on: after each step, run this project's own
-  checks (tests, lint, whatever it actually uses — no \`checksCmd\` is
+    ? `${stepTestsLine}
+- When every step is done, run the full checks ONCE and see them exit 0 —
+  \`${checksCmd}\`${e2eCmd ? ` (e2e is separate: \`${e2eCmd}\`, only if the change needs it)` : ''}.
+  Do not substitute your own command. Fix every failure, then run it again
+  until it passes. This passing IS the definition of done — not "looks
+  right", not a claim with no evidence.`
+    : `${stepTestsLine}
+- When every step is done, run this project's own full checks ONCE
+  (tests, lint, whatever it actually uses — no \`checksCmd\` is
   configured for this project, so there is no single command to hand
-  you; find and run the real one, and see it pass) before moving on.
-  A claim with no evidence is not verification.`;
+  you; find the real one). Fix every failure, then run them again until
+  they pass.`;
 
   // Named, not paraphrased. A skill written from memory is not the skill, and
   // the bullets under this one are only the fallback when none can be loaded.
@@ -250,12 +258,12 @@ what makes it a real review and not a self-check. You do not need a
 does not need either one either. Check on it with
 \`${cli} ergon ${ticketId} --review --status\` and act on what comes back.
 
-If the spec has acceptance criteria, \`--review\` first has each one
-checked against the running app: by a fresh QA tester when a verifier
-agent is configured, or else by a person at a real terminal. Without a
-verifier it prints a handover for you to pass on, and starts nothing. The
-reviewer only starts once they all pass. \`--review --status\` shows each
-criterion; a failed one is a blocking finding.
+If the spec has acceptance criteria, they are checked after the review
+comes back clean, against the running app: once the verdict is clean,
+\`--review --status\` starts a fresh QA tester when a verifier agent is
+configured, or else prints a handover for a person at a real terminal.
+\`--review --status\` shows each criterion:
+a failed one is a blocking finding.
 
 If no reviewer is configured, the command prints the review brief
 instead — you have no way to spawn a fresh reviewer yourself, so stop
@@ -581,7 +589,12 @@ export function buildReviewPrompt({
   );
 
   sections.push(diffSection(diff, baseRef));
-  sections.push(`## Automated checks\n${formatChecks(checks, checksNote)}`);
+  // Reviewers re-ran these anyway and paid a turn for each, or hit a refusal and retried.
+  const ranNote =
+    checks.length > 0
+      ? `\n\nglafka ran these on this exact code just before you started. Do not run\nthem again — read the result above.`
+      : '';
+  sections.push(`## Automated checks\n${formatChecks(checks, checksNote)}${ranNote}`);
   // These files run on a person's machine, not the agent's.
   // Point that out if it could be a problem.
   if (hostExec) sections.push(`## Runs on the human's machine, not in the cage\n${hostExec}`);

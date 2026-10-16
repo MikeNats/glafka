@@ -7,20 +7,21 @@ import { makeGitRepo } from '../helpers/gitFixture.js';
 import { makeTempDir } from '../helpers/tempDir.js';
 import { genesis } from '../../src/commands/genesis/genesis.js';
 import { runErgon } from '../../installKit/bin/commands/ergon.js';
-import { ergonReview, VerifyBlockedError } from '../../src/commands/ergon/ergon.js';
+import { ergonReview, CoderFixableError } from '../../src/commands/ergon/ergon.js';
 import {
   readTicket,
-  updateTicket,
   openVerifyRound,
   appendVerifyResult,
-  consumeVerifyRound,
   hashReviewToken,
   reviewerRoles,
   recordStage,
-  addCriterionSkip,
   STAGES,
   RUN_OUTCOMES,
+  startCleanRound,
+  setReviewedTree,
+  appendReviewFinding,
 } from '../../src/ticket/ticketStore.js';
+import { headTree } from '../../src/util/git.js';
 import { codeState } from '../../src/commands/epalitheusis/codeState.js';
 import { closeRoundIfEnded } from '../../src/commands/epalitheusis/epalitheusis.js';
 import { runFiles } from '../../src/ticket/paths.js';
@@ -95,6 +96,19 @@ const run = (
     hasTty,
   });
 
+// A finished reviewer whose trusted clean verdict covers the code at HEAD. QA comes after it.
+function cleanReview(stateDir: string, id: string) {
+  const token = startCleanRound(stateDir, id);
+  setReviewedTree(stateDir, id, headTree(readTicket(stateDir, id).worktree!));
+  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
+  const { dir, pidPath, exitCodePath, logPath } = runFiles(stateDir, id, 'reviewer');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(pidPath, '999999');
+  fs.writeFileSync(exitCodePath, '0');
+  fs.writeFileSync(logPath, '');
+  appendReviewFinding(stateDir, id, { verdict: 'clean', token, callerOrigin: 'inside' });
+}
+
 // Every run a test may have started: each reviewer slot the ticket recorded, and the verifier.
 function stopAll(stateDir: string, id: string): void {
   for (const role of [...reviewerRoles(readTicket(stateDir, id)), 'verifier']) {
@@ -102,17 +116,32 @@ function stopAll(stateDir: string, id: string): void {
   }
 }
 
-test('AC-4 (CLI): --review starts a verifier, not a reviewer', async () => {
-  const { repoRoot, stateDir, id } = await committedTicket();
+test('AC-4 (CLI): --review starts a reviewer first, and a verifier after a clean review', async () => {
+  const agents = { verifier: 'sleep 30', reviewer: 'sleep 30' };
+  const fresh = await committedTicket();
+  const reviewed = await committedTicket();
+  cleanReview(reviewed.stateDir, reviewed.id);
   try {
+    const first = await capture(() =>
+      run(fresh.repoRoot, fresh.stateDir, [fresh.id, '--review'], agents),
+    );
+    assert.match(first, /reviewer started/);
+    assert.equal(
+      backgroundStatus({ stateDir: fresh.stateDir, id: fresh.id, role: 'verifier' }).state,
+      'not-started',
+    );
+
     const out = await capture(() =>
-      run(repoRoot, stateDir, [id, '--review'], { verifier: 'sleep 30', reviewer: 'sleep 30' }),
+      run(reviewed.repoRoot, reviewed.stateDir, [reviewed.id, '--review'], agents),
     );
     assert.match(out, /QA tester started/);
-    assert.equal(backgroundStatus({ stateDir, id, role: 'verifier' }).state, 'running');
-    assert.equal(backgroundStatus({ stateDir, id, role: 'reviewer' }).state, 'not-started');
+    assert.equal(
+      backgroundStatus({ stateDir: reviewed.stateDir, id: reviewed.id, role: 'verifier' }).state,
+      'running',
+    );
   } finally {
-    stopAll(stateDir, id);
+    stopAll(fresh.stateDir, fresh.id);
+    stopAll(reviewed.stateDir, reviewed.id);
   }
 });
 
@@ -132,16 +161,15 @@ test('AC-7: --review --status shows a failed AC with evidence, and starts no rev
   }
 });
 
-test('AC-9: --review --status that closes a passed round starts the reviewer', async () => {
-  const { repoRoot, stateDir, id, worktree } = await committedTicket();
-  openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
-  appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'pass', evidence: 'ok', token: 'tok' });
+test('AC-9: --review --status after a clean review starts the QA round', async () => {
+  const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
   try {
     const out = await capture(() =>
-      run(repoRoot, stateDir, [id, '--review', '--status'], { reviewer: 'sleep 30' }),
+      run(repoRoot, stateDir, [id, '--review', '--status'], { verifier: 'sleep 30' }),
     );
-    assert.match(out, /all acceptance criteria passed — starting the review/);
-    assert.equal(backgroundStatus({ stateDir, id, role: 'reviewer' }).state, 'running');
+    assert.match(out, /review clean — starting the QA round/);
+    assert.equal(backgroundStatus({ stateDir, id, role: 'verifier' }).state, 'running');
   } finally {
     stopAll(stateDir, id);
   }
@@ -149,6 +177,7 @@ test('AC-9: --review --status that closes a passed round starts the reviewer', a
 
 test('--review --stop stops the verifier too', async () => {
   const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
   try {
     await capture(() => run(repoRoot, stateDir, [id, '--review'], { verifier: 'sleep 30' }));
     const out = await capture(() => run(repoRoot, stateDir, [id, '--review', '--stop']));
@@ -169,6 +198,7 @@ test('--review --stop with nothing alive names the QA tester too', async () => {
 // same-session flow that agent is the coder, so it must never see the token.
 test('with no verifier agent and no terminal, no token is printed and no round opens', async () => {
   const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
   // Nothing starts, so the exit code is 1. That is its own test below.
   const exitCode = process.exitCode;
   const out = await capture(() => run(repoRoot, stateDir, [id, '--review']));
@@ -182,6 +212,7 @@ test('with no verifier agent and no terminal, no token is printed and no round o
 
 test('with no verifier agent, a person at a terminal gets the token and a manual round', async () => {
   const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
   const out = await capture(() => run(repoRoot, stateDir, [id, '--review'], {}, () => true));
   assert.match(out, /--token [0-9a-f]{32}/);
   assert.equal(readTicket(stateDir, id).verification!.spawned, false);
@@ -189,10 +220,16 @@ test('with no verifier agent, a person at a terminal gets the token and a manual
 
 test('--review --status says why a new round is needed', async () => {
   const { repoRoot, stateDir, id, worktree } = await committedTicket();
+  cleanReview(stateDir, id);
   openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
   appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'fail', evidence: 'got 500' });
-  await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
-  consumeVerifyRound(stateDir, id, hashReviewToken('tok'));
+  const shown = await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
+  assert.match(shown, /fix the failed criteria and commit/);
+  // `--review` acts on the fail once: it goes to the coder.
+  await assert.rejects(
+    () => ergonReview({ stateDir, id, repoRoot }),
+    (err: Error) => err instanceof CoderFixableError,
+  );
 
   const used = await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
   assert.match(used, /this round's outcome was already acted on/);
@@ -203,51 +240,41 @@ test('--review --status says why a new round is needed', async () => {
   assert.match(changed, /the code changed since this round/);
 });
 
-// After the QA round stopped the review, the reviewer log on disk is the round before.
-test('C2: --review --status does not show a verdict from before a blocked QA round', async () => {
+// A clean verdict on older code says nothing about this code: no QA round starts from it.
+test('C2: --review --status does not start QA from a clean verdict on older code', async () => {
   const { repoRoot, stateDir, id, worktree } = await committedTicket();
-  recordStage(stateDir, id, STAGES.ERGON);
-  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
-  const { dir, pidPath, exitCodePath, logPath } = runFiles(stateDir, id, 'reviewer');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(pidPath, '999999');
-  fs.writeFileSync(exitCodePath, '0');
-  fs.writeFileSync(logPath, 'VERDICT: blocking — stale, already fixed\n');
-  recordStage(stateDir, id, STAGES.ERGON);
-  openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
-  appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'cannot', evidence: 'no app' });
-  await assert.rejects(
-    () => ergonReview({ stateDir, id, repoRoot }),
-    (err: Error) => err instanceof VerifyBlockedError,
-  );
-  addCriterionSkip(stateDir, id, { ac: 'AC-1', reason: 'no app for this ticket' });
+  cleanReview(stateDir, id);
+  fs.writeFileSync(path.join(worktree, 'fix.txt'), 'x\n');
+  execFileSync('git', ['add', 'fix.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '-q', '-m', 'fix'], { cwd: worktree });
 
   const out = await capture(() =>
-    run(repoRoot, stateDir, [id, '--review', '--status'], { reviewer: 'sleep 30' }),
+    run(repoRoot, stateDir, [id, '--review', '--status'], { verifier: 'sleep 30' }),
   );
-  assert.doesNotMatch(out, /blocking/);
-  assert.match(out, /no reviewer has started since this QA round/);
+  assert.doesNotMatch(out, /starting the QA round/);
   assert.match(out, /start the review: glafka ergon .* --review/);
+  assert.equal(backgroundStatus({ stateDir, id, role: 'verifier' }).state, 'not-started');
 });
 
-test('A2: a passed round with no reviewer started names the next command', async () => {
+test('A2: a clean review and a passed round say ready, and start nothing', async () => {
   const { repoRoot, stateDir, id, worktree } = await committedTicket();
+  cleanReview(stateDir, id);
   openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
   appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'pass', evidence: 'ok', token: 'tok' });
-  // Closed by an earlier call whose reviewer start failed.
   assert.equal(closeRoundIfEnded({ stateDir, id }), true);
 
   const out = await capture(() =>
-    run(repoRoot, stateDir, [id, '--review', '--status'], { reviewer: 'sleep 30' }),
+    run(repoRoot, stateDir, [id, '--review', '--status'], { verifier: 'sleep 30' }),
   );
   assert.match(out, /AC-1 {2}\[pass\]/);
-  assert.match(out, /start the review: glafka ergon .* --review/);
-  assert.equal(backgroundStatus({ stateDir, id, role: 'reviewer' }).state, 'not-started');
+  assert.match(out, /all acceptance criteria passed — ready/);
+  assert.equal(backgroundStatus({ stateDir, id, role: 'verifier' }).state, 'not-started');
 });
 
 // A manual round's token is printed once. A person who lost it can start again.
 test('C7: --review at a terminal replaces an open manual round with a fresh token', async () => {
   const { repoRoot, stateDir, id } = await committedTicket(`${AC_SPEC}- AC-2: d → e → f\n`);
+  cleanReview(stateDir, id);
   const first = await capture(() => run(repoRoot, stateDir, [id, '--review'], {}, () => true));
   const before = readTicket(stateDir, id).verification!;
   appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'fail', evidence: 'half done' });
@@ -280,6 +307,7 @@ async function waitEnded(stateDir: string, id: string, role: string): Promise<vo
 // M4: a QA tester run the CLI started is in the audit once, under its own stage.
 test('--review --status and the next --review record each ended QA tester run once', async () => {
   const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
   const agents = { verifier: 'cat > /dev/null', reviewer: 'sleep 30' };
   const watched = { ...config(agents), observability: { enabled: true } } as Config;
   const ergonCli = (args: string[]) =>
@@ -315,17 +343,12 @@ test('--review --status and the next --review record each ended QA tester run on
 // M7: with no reviewer agent, the printed brief IS the review. --status must not send the
 // person back to --review, which would replace the krisis token they were just given.
 test('a printed review brief counts as a started review, and its krisis verdict counts', async () => {
-  const { repoRoot, stateDir, id, worktree } = await committedTicket();
-  openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
-  appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'pass', evidence: 'ok', token: 'tok' });
+  const { repoRoot, stateDir, id } = await committedTicket();
   // A person at a terminal: only they are shown the clean token.
-  const brief = await capture(() =>
-    run(repoRoot, stateDir, [id, '--review', '--status'], {}, () => true),
-  );
+  const brief = await capture(() => run(repoRoot, stateDir, [id, '--review'], {}, () => true));
   const token = /--verdict clean --token ([0-9a-f]{32})/.exec(brief)![1]!;
 
   const status = await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
-  assert.doesNotMatch(status, /no reviewer has started since this QA round/);
   assert.match(status, /review run=none \(no subagent\)/);
 
   await capture(async () =>
@@ -353,6 +376,7 @@ async function ticketAtLevel(level: number) {
   fs.writeFileSync(path.join(ticket.worktree!, 'feature.txt'), 'x\n');
   execFileSync('git', ['add', 'feature.txt'], { cwd: ticket.worktree! });
   execFileSync('git', ['commit', '-q', '-m', 'feature'], { cwd: ticket.worktree! });
+  cleanReview(stateDir, ticket.id);
   return { repoRoot, stateDir, id: ticket.id };
 }
 
@@ -400,6 +424,7 @@ test('--review gives no guardrails warning at level 2', async () => {
 // M11: nothing was started, so a script driving this must not read it as "QA under way".
 test('with no verifier agent and no terminal, --review exits 1', async () => {
   const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
   const exitCode = process.exitCode;
   try {
     await capture(() => run(repoRoot, stateDir, [id, '--review']));
@@ -457,15 +482,17 @@ test('with no terminal, the printed review brief holds no clean token', async ()
   assert.match(brief, /--verdict blocking --finding/);
 });
 
-// --status starts the review once QA passes. It used to read the real terminal, not the caller's.
-test('with no terminal, --status that starts the review holds no clean token either', async () => {
-  const { repoRoot, stateDir, id, worktree } = await committedTicket();
-  openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
-  appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'pass', evidence: 'ok', token: 'tok' });
+// --status starts QA once the review is clean. It must read the caller's terminal, not the real one.
+test('with no terminal, --status that starts QA prints no QA token either', async () => {
+  const { repoRoot, stateDir, id } = await committedTicket();
+  cleanReview(stateDir, id);
+  const exitCode = process.exitCode;
   const brief = await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
+  process.exitCode = exitCode;
 
-  assert.match(brief, /all acceptance criteria passed — starting the review/);
-  assert.doesNotMatch(brief, /--verdict clean --token/);
+  assert.match(brief, /review clean — starting the QA round/);
+  assert.doesNotMatch(brief, /--token/);
+  assert.equal(readTicket(stateDir, id).verification, null);
 });
 
 // Two AC tickets in one repo, named so a wakeCmd can tell them apart.
@@ -481,6 +508,7 @@ async function twoTickets(second = AC_SPEC) {
     fs.writeFileSync(path.join(ticket.worktree!, 'feature.txt'), 'x\n');
     execFileSync('git', ['add', 'feature.txt'], { cwd: ticket.worktree! });
     execFileSync('git', ['commit', '-q', '-m', 'feature'], { cwd: ticket.worktree! });
+    if (content === AC_SPEC) cleanReview(stateDir, ticket.id);
     ids.push(ticket.id);
   }
   return { repoRoot, stateDir, first: ids[0]!, second: ids[1]! };
@@ -528,14 +556,9 @@ test('a sweep where one ticket started something exits 0, even if another starte
 // Round 2: a review a person was handed has no process to kill. Past the time limit,
 // --status must not say it COULD NOT BE KILLED.
 test('a printed review brief past the time limit is not reported as a run that could not be killed', async () => {
-  const { repoRoot, stateDir, id, worktree } = await committedTicket();
-  openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: false });
-  appendVerifyResult(stateDir, id, { ac: 'AC-1', result: 'pass', evidence: 'ok', token: 'tok' });
-  await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
+  const { repoRoot, stateDir, id } = await committedTicket();
+  await capture(() => run(repoRoot, stateDir, [id, '--review']));
   const longAgo = Date.now() - 120_000;
-  updateTicket(stateDir, id, (t) => ({
-    verification: { ...t.verification!, openedAt: new Date(longAgo - 5_000).toISOString() },
-  }));
   fs.writeFileSync(runFiles(stateDir, id, 'reviewer').startedAtPath, String(longAgo));
   const status = await capture(() => run(repoRoot, stateDir, [id, '--review', '--status']));
   assert.match(status, /review run=none \(no subagent\)/);

@@ -12,6 +12,8 @@ import {
   setReviewerRoles,
   recordStage,
   markNotified,
+  lastReviewQaBlocked,
+  VERIFY_OUTCOME,
   STAGES,
   RUN_OUTCOMES,
 } from '../../ticket/ticketStore.js';
@@ -44,8 +46,12 @@ import {
   dispatchVerifier,
   settleVerifierRun,
   strictLevelWarning,
+  verifyGate,
+  verificationGap,
+  codeChanges,
+  codeFor,
+  roundCode,
 } from '../epalitheusis/epalitheusis.js';
-import { reviewedQa } from './reviewedQa.js';
 import { waitsForVerifierAgent, noVerifierReason, waitingReason } from './noVerifier.js';
 import { spawnCoder, notifyOnce, wakeServicesOrStop } from './utils.js';
 import type { VimaResult, VimaConfig } from './utils.js';
@@ -323,8 +329,7 @@ async function step({
     return spawnCoder({ stateDir, id, repoRoot, config, ticket, why: 'plan approved' });
   }
 
-  // The coder ran and stopped, and is not stuck. Has it been reviewed? A reviewed ticket can
-  // still have a QA round to close, or no reviewer since the QA round stopped the last review.
+  // The coder ran and stopped, and is not stuck. Has it been reviewed?
   // A commit by hand after the review. A person starts that paid round, never vima.
   if (hasUnreviewedCommit(ticket)) {
     return notifyOnce({
@@ -336,10 +341,8 @@ async function step({
       reason: `${UNREVIEWED_COMMIT} — review it: glafka ergon ${id} --review — needs you`,
     });
   }
-  const reviewed = isReviewedSinceLastChange(ticket);
-  const qa = reviewed ? reviewedQa(stateDir, ticket) : null;
-  if (!reviewed || qa?.kind === 'review') {
-    if (!reviewed && reviewRoundCount(ticket) >= config.maxReviewRounds) {
+  if (!isReviewedSinceLastChange(ticket)) {
+    if (reviewRoundCount(ticket) >= config.maxReviewRounds) {
       return notifyOnce({
         stateDir,
         id,
@@ -349,179 +352,7 @@ async function step({
         reason: `max review rounds (${config.maxReviewRounds}) reached — needs you`,
       });
     }
-    // Already told: nothing has changed that a new try could use.
-    if (!reviewed && waitsForVerifierAgent({ stateDir, ticket, config })) {
-      return { id, action: 'none', reason: waitingReason(id) };
-    }
-
-    let prepared;
-    try {
-      prepared = await ergonReview({
-        stateDir,
-        id,
-        repoRoot,
-        baseRef: config.baseRef ?? undefined,
-        checksCmd: config.checksCmd,
-        e2eCmd: config.e2eCmd,
-        checksTimeoutMs: config.checksTimeoutMs,
-        e2eTimeoutMs: config.e2eTimeoutMs,
-        reviewDoc: config.reviewDoc,
-      });
-    } catch (err) {
-      // It finished, committed nothing, and did not say why.
-      // Trying again would just repeat that, so a person must look.
-      if (err instanceof NothingToReviewError) {
-        return notifyOnce({
-          stateDir,
-          id,
-          config,
-          ticket,
-          action: 'none',
-          reason: 'coder finished but committed nothing, and did not record why — needs you',
-        });
-      }
-      // Failing checks that were ALREADY failing on the base commit. A coder cannot fix what it did not
-      // break, so this must never reach spawnCoder — that is the loop that used to spend three paid runs on a red script nobody configured.
-      if (err instanceof PreExistingChecksError) {
-        return notifyOnce({
-          stateDir,
-          id,
-          config,
-          ticket,
-          action: 'none',
-          reason: `${err.message} — needs you`,
-        });
-      }
-      // Checks failed, or the last run died. More code really could fix it,
-      // so one more coder is the right answer.
-      if (err instanceof CoderFixableError) {
-        // The last round sends no coder, whatever failed. The next tick stops at the
-        // limit, so nobody would ever review that coder's work.
-        if (reviewRoundCount(readTicket(stateDir, id)) >= config.maxReviewRounds) {
-          return notifyOnce({
-            stateDir,
-            id,
-            config,
-            ticket,
-            action: 'none',
-            reason: `${err.message} — and max review rounds (${config.maxReviewRounds}) reached — needs you`,
-          });
-        }
-        return spawnCoder({
-          stateDir,
-          id,
-          repoRoot,
-          config,
-          ticket,
-          // Reads as a cause, not a verdict. "review could not proceed" beside the action word `spawned-coder`
-          // looked like the step had failed, when in fact a coder had just been started to fix exactly this.
-          why: `sent back to the coder: ${err.message}`,
-        });
-      }
-      // Everything else is a setup problem, like a missing worktree.
-      // No coder can fix that, and trying costs real money.
-      return notifyOnce({
-        stateDir,
-        id,
-        config,
-        ticket,
-        action: 'none',
-        reason: `review could not proceed: ${(err as Error).message} — needs you`,
-      });
-    }
-
-    // The acceptance criteria come first. No reviewer until they pass.
-    if (prepared.verify) {
-      // A new QA round with no code change in between: only a person starts that one.
-      if (reviewed) {
-        return notifyOnce({
-          stateDir,
-          id,
-          config,
-          ticket,
-          action: 'none',
-          reason: `a new QA round is due — start it: glafka ergon ${id} --review — needs you`,
-        });
-      }
-      const verifierCmd = resolveAgentCmd({ config, role: ROLES.VERIFIER });
-      if (!verifierCmd) {
-        const told = notifyOnce({
-          stateDir,
-          id,
-          config,
-          ticket,
-          action: 'none',
-          reason: noVerifierReason(id),
-        });
-        // Marked with or without a notifyCmd: the wait above reads it, and must not rerun the checks.
-        markNotified(stateDir, id);
-        return told;
-      }
-      const stopped = wakeServicesOrStop({
-        stateDir,
-        id,
-        repoRoot,
-        config,
-        ticket: prepared.ticket,
-        agent: 'QA tester',
-      });
-      if (stopped) return stopped;
-      // Said once, on the tick that pays for the tester. Read first, so it cannot fail after it.
-      const strict = strictLevelWarning(repoRoot);
-      const { pid } = dispatchVerifier({
-        stateDir,
-        ticket: prepared.ticket,
-        verify: prepared.verify,
-        agentCmd: verifierCmd,
-        policy: resolvePolicy({ repoRoot }).policy,
-      });
-      return { id, action: 'spawned-verifier', pid, ...(strict ? { reason: strict } : {}) };
-    }
-
-    const reviewerCmd = resolveAgentCmd({ config, role: ROLES.REVIEWER });
-    if (!reviewerCmd) {
-      return {
-        id,
-        action: 'none',
-        reason: 'checks green, but no reviewer agent configured — review manually',
-      };
-    }
-    const { policy } = resolvePolicy({ repoRoot });
-
-    // A large diff earns more than one reviewer. They read the same committed diff and need no worktree,
-    // branch or port of their own, so they run side by side. Recorded BEFORE the spawns — see startReviewers.
-    setReviewerRoles(
-      stateDir,
-      id,
-      prepared.reviewers.map((r) => r.role),
-    );
-
-    const pids = prepared.reviewers.map(
-      (reviewer) =>
-        dispatchReviewer({
-          stateDir,
-          ticket: prepared.ticket,
-          // A separate process — the only place the review token may travel.
-          prompt: reviewer.reviewerPrompt,
-          agentCmd: reviewerCmd,
-          policy,
-          role: reviewer.role,
-        }).pid,
-    );
-    return { id, action: 'spawned-reviewer', pid: pids[0]!, reviewers: prepared.reviewers.length };
-  }
-
-  // A QA round that stopped the review leaves no verdict of its own. The reviewer log on disk
-  // is the round before, so reading it would pay for a coder with old findings.
-  if (qa?.kind === 'needs-you') {
-    return notifyOnce({
-      stateDir,
-      id,
-      config,
-      ticket,
-      action: 'none',
-      reason: `${qa.reason} — needs you`,
-    });
+    return reviewOrVerify({ stateDir, id, repoRoot, config, ticket });
   }
 
   // It has been reviewed since the last change, so read the verdict.
@@ -557,14 +388,7 @@ async function step({
   // through a channel that proves nothing about who wrote it, and `vima` runs unattended — so this
   // is the one place where treating the two alike would walk a guess forward with nobody watching.
   if (verdict.verdict === 'clean' && verdict.source === VERDICT_SOURCE.KRISIS) {
-    return notifyOnce({
-      stateDir,
-      id,
-      config,
-      ticket,
-      action: 'ready',
-      reason: 'clean — ready for you',
-    });
+    return afterCleanReview({ stateDir, id, repoRoot, config });
   }
   if (verdict.verdict === 'clean') {
     return notifyOnce({
@@ -586,6 +410,231 @@ async function step({
     action: 'none',
     reason: `verdict ${verdict.source} — needs you`,
   });
+}
+
+// A clean review is ready only once the acceptance criteria passed on the same code.
+async function afterCleanReview({
+  stateDir,
+  id,
+  repoRoot,
+  config,
+}: {
+  stateDir: string;
+  id: string;
+  repoRoot: string;
+  config: VimaConfig;
+}): Promise<VimaResult> {
+  const gate = verifyGate({ stateDir, id, maxRuntimeMs: config.ergonTimeoutMs });
+  // Read after the gate: it may have just closed an ended round.
+  const ticket = readTicket(stateDir, id);
+  if (gate.kind === 'skip' || gate.kind === 'passed') {
+    return notifyOnce({
+      stateDir,
+      id,
+      config,
+      ticket,
+      action: 'ready',
+      reason: 'clean — ready for you',
+    });
+  }
+  // An open manual round: a person is recording the results.
+  if (gate.kind === 'running') {
+    return notifyOnce({
+      stateDir,
+      id,
+      config,
+      ticket,
+      action: 'none',
+      reason: `the QA round is still open — no result yet for ${gate.missing.join(', ')} — needs you`,
+    });
+  }
+  // A QA result was already acted on since this review. A new round, or a fail on code that
+  // changed since it closed, is a person's call: they may be fixing it right now.
+  if (lastReviewQaBlocked(ticket) && !unusedOnSameCode(ticket)) {
+    const gap = verificationGap(ticket) ?? 'a new QA round is due';
+    return notifyOnce({
+      stateDir,
+      id,
+      config,
+      ticket,
+      action: 'none',
+      reason: `acceptance criteria: ${gap} — needs you`,
+    });
+  }
+  // Already told: nothing has changed that a new try could use.
+  if (waitsForVerifierAgent({ stateDir, ticket, config })) {
+    return { id, action: 'none', reason: waitingReason(id) };
+  }
+  return reviewOrVerify({ stateDir, id, repoRoot, config, ticket });
+}
+
+// A closed round nobody acted on yet, on the same code that is here now.
+function unusedOnSameCode(ticket: Ticket): boolean {
+  const round = ticket.verification;
+  if (!round || !ticket.worktree || round.consumed) return false;
+  if (round.outcome === null || round.outcome === VERIFY_OUTCOME.PASSED) return false;
+  return codeChanges(roundCode(round), codeFor(round, ticket.worktree)).length === 0;
+}
+
+// Runs `ergon --review` and starts whatever it asks for: a reviewer, or, after a clean review,
+// the QA tester. A failure it reports is routed to a coder or to a person.
+async function reviewOrVerify({
+  stateDir,
+  id,
+  repoRoot,
+  config,
+  ticket,
+}: {
+  stateDir: string;
+  id: string;
+  repoRoot: string;
+  config: VimaConfig;
+  ticket: Ticket;
+}): Promise<VimaResult> {
+  let prepared;
+  try {
+    prepared = await ergonReview({
+      stateDir,
+      id,
+      repoRoot,
+      baseRef: config.baseRef ?? undefined,
+      checksCmd: config.checksCmd,
+      e2eCmd: config.e2eCmd,
+      checksTimeoutMs: config.checksTimeoutMs,
+      e2eTimeoutMs: config.e2eTimeoutMs,
+      reviewDoc: config.reviewDoc,
+    });
+  } catch (err) {
+    // It finished, committed nothing, and did not say why.
+    // Trying again would just repeat that, so a person must look.
+    if (err instanceof NothingToReviewError) {
+      return notifyOnce({
+        stateDir,
+        id,
+        config,
+        ticket,
+        action: 'none',
+        reason: 'coder finished but committed nothing, and did not record why — needs you',
+      });
+    }
+    // Failing checks that were ALREADY failing on the base commit. A coder cannot fix what it did not
+    // break, so this must never reach spawnCoder — that is the loop that used to spend three paid runs on a red script nobody configured.
+    if (err instanceof PreExistingChecksError) {
+      return notifyOnce({
+        stateDir,
+        id,
+        config,
+        ticket,
+        action: 'none',
+        reason: `${err.message} — needs you`,
+      });
+    }
+    // Checks failed, a criterion failed, or the last run died. More code really could fix it,
+    // so one more coder is the right answer.
+    if (err instanceof CoderFixableError) {
+      // The last round sends no coder, whatever failed. The next tick stops at the
+      // limit, so nobody would ever review that coder's work.
+      if (reviewRoundCount(readTicket(stateDir, id)) >= config.maxReviewRounds) {
+        return notifyOnce({
+          stateDir,
+          id,
+          config,
+          ticket,
+          action: 'none',
+          reason: `${err.message} — and max review rounds (${config.maxReviewRounds}) reached — needs you`,
+        });
+      }
+      return spawnCoder({
+        stateDir,
+        id,
+        repoRoot,
+        config,
+        ticket,
+        // Reads as a cause, not a verdict. "review could not proceed" beside the action word `spawned-coder`
+        // looked like the step had failed, when in fact a coder had just been started to fix exactly this.
+        why: `sent back to the coder: ${err.message}`,
+      });
+    }
+    // Everything else is a setup problem, like a missing worktree.
+    // No coder can fix that, and trying costs real money.
+    return notifyOnce({
+      stateDir,
+      id,
+      config,
+      ticket,
+      action: 'none',
+      reason: `review could not proceed: ${(err as Error).message} — needs you`,
+    });
+  }
+
+  // A clean review left the acceptance criteria: the QA tester checks them on the same code.
+  if (prepared.verify) {
+    const verifierCmd = resolveAgentCmd({ config, role: ROLES.VERIFIER });
+    if (!verifierCmd) {
+      const told = notifyOnce({
+        stateDir,
+        id,
+        config,
+        ticket,
+        action: 'none',
+        reason: noVerifierReason(id),
+      });
+      // Marked with or without a notifyCmd: the wait above reads it, and must not rerun the checks.
+      markNotified(stateDir, id);
+      return told;
+    }
+    const stopped = wakeServicesOrStop({
+      stateDir,
+      id,
+      repoRoot,
+      config,
+      ticket: prepared.ticket,
+      agent: 'QA tester',
+    });
+    if (stopped) return stopped;
+    // Said once, on the tick that pays for the tester. Read first, so it cannot fail after it.
+    const strict = strictLevelWarning(repoRoot);
+    const { pid } = dispatchVerifier({
+      stateDir,
+      ticket: prepared.ticket,
+      verify: prepared.verify,
+      agentCmd: verifierCmd,
+      policy: resolvePolicy({ repoRoot }).policy,
+    });
+    return { id, action: 'spawned-verifier', pid, ...(strict ? { reason: strict } : {}) };
+  }
+
+  const reviewerCmd = resolveAgentCmd({ config, role: ROLES.REVIEWER });
+  if (!reviewerCmd) {
+    return {
+      id,
+      action: 'none',
+      reason: 'checks green, but no reviewer agent configured — review manually',
+    };
+  }
+  const { policy } = resolvePolicy({ repoRoot });
+
+  // A large diff earns more than one reviewer. They read the same committed diff and need no worktree,
+  // branch or port of their own, so they run side by side. Recorded BEFORE the spawns — see startReviewers.
+  setReviewerRoles(
+    stateDir,
+    id,
+    prepared.reviewers.map((r) => r.role),
+  );
+
+  const pids = prepared.reviewers.map(
+    (reviewer) =>
+      dispatchReviewer({
+        stateDir,
+        ticket: prepared.ticket,
+        // A separate process — the only place the review token may travel.
+        prompt: reviewer.reviewerPrompt,
+        agentCmd: reviewerCmd,
+        policy,
+        role: reviewer.role,
+      }).pid,
+  );
+  return { id, action: 'spawned-reviewer', pid: pids[0]!, reviewers: prepared.reviewers.length };
 }
 
 // One step per open ticket, one ticket at a time. Safe beats fast here.

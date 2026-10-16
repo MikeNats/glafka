@@ -22,7 +22,16 @@ import {
   devServerAlive,
   stopDevServer,
 } from '../../src/ticket/devServer.js';
-import { readTicket } from '../../src/ticket/ticketStore.js';
+import {
+  readTicket,
+  startCleanRound,
+  setReviewedTree,
+  recordStage,
+  appendReviewFinding,
+  STAGES,
+  RUN_OUTCOMES,
+} from '../../src/ticket/ticketStore.js';
+import { headTree } from '../../src/util/git.js';
 import { runFiles, ticketFiles, ticketsDir, planPath } from '../../src/ticket/paths.js';
 import { isAlive } from '../../src/ticket/background.js';
 import { withFileLockAsync } from '../../src/util/fileOperations.js';
@@ -926,6 +935,16 @@ test('ergon --review brings the app back before it starts the QA tester', async 
   execFileSync('git', ['add', 'done.txt'], { cwd: ticket.worktree! });
   execFileSync('git', ['commit', '-q', '-m', 'did it'], { cwd: ticket.worktree! });
   await stopAndWait(stateDir, ticket.id);
+  // QA follows a clean review of the same code: a finished reviewer recorded clean.
+  const token = startCleanRound(stateDir, ticket.id);
+  setReviewedTree(stateDir, ticket.id, headTree(ticket.worktree!));
+  recordStage(stateDir, ticket.id, STAGES.REVIEW, RUN_OUTCOMES.OK);
+  const reviewer = runFiles(stateDir, ticket.id, 'reviewer');
+  fs.mkdirSync(reviewer.dir, { recursive: true });
+  fs.writeFileSync(reviewer.pidPath, '999999');
+  fs.writeFileSync(reviewer.exitCodePath, '0');
+  fs.writeFileSync(reviewer.logPath, '');
+  appendReviewFinding(stateDir, ticket.id, { verdict: 'clean', token, callerOrigin: 'inside' });
 
   const config = {
     baseRef: 'main',

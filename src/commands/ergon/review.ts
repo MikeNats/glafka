@@ -48,7 +48,8 @@ import {
   headTree,
 } from '../../util/git.js';
 import { glafkaCli } from '../../util/cli.js';
-import { readProgress, OUTCOME_FOR_VERDICT } from './utils.js';
+import { readProgress, OUTCOME_FOR_VERDICT, VERDICT_SOURCE } from './utils.js';
+import { ergonReviewStatus } from './reviewOutcome.js';
 import { buildReviewPrompt } from './prompts.js';
 import type { Ticket } from '../../types/ticket.js';
 import type { CheckResult } from '../../types/checks.js';
@@ -79,7 +80,7 @@ export interface ReviewPrepared {
   // and a diff that earns one reviewer must behave exactly as it always did. They are always reviewers[0].
   prompt: string;
   reviewerPrompt: string;
-  // Set when the acceptance criteria must be checked first. Then `reviewers` is empty.
+  // Set when a clean review leaves the acceptance criteria to check. Then `reviewers` is empty.
   verify: VerifyPrepared | null;
 }
 
@@ -320,11 +321,16 @@ async function prepareReview({
     );
   }
 
-  // A new round starts clean, with its own review token; a "clean" without it is not trusted.
-  // A QA round does this where it really opens (dispatchVerifier, openManualRound).
-  const reviewToken = gate.kind === 'start' ? '' : startCleanRound(stateDir, id);
+  // The criteria are checked only after a clean review of this exact code: a review is cheaper,
+  // and its fixes would change the code a QA round had already passed. A passed round needs nothing.
+  const qaNext =
+    (gate.kind === 'start' || gate.kind === 'blocked') && cleanReviewOnHead(stateDir, now);
+
+  // A new review round starts clean, with its own token; a "clean" without it is not trusted.
+  // A QA round keeps the clean verdict it follows, so it clears nothing here.
+  const reviewToken = qaNext ? '' : startCleanRound(stateDir, id);
   // Only a review round drops the old tree. A QA round adds no review entry, so it keeps it.
-  if (gate.kind !== 'start') setReviewedTree(stateDir, id, null);
+  if (!qaNext) setReviewedTree(stateDir, id, null);
 
   // Computed before the checks run, not after: the npm fallback below would otherwise run package.json's own scripts on the host, unattended,
   const { policy } = resolvePolicy({ repoRoot });
@@ -396,8 +402,8 @@ async function prepareReview({
     );
   }
 
-  // Step 2: the acceptance criteria, before any reviewer reads the diff.
-  if (gate.kind === 'start') {
+  // Step 3: the acceptance criteria, once a clean review read this exact code.
+  if (qaNext && gate.kind === 'start') {
     // No review entry: nothing was reviewed, and vima reads that entry.
     return {
       ticket,
@@ -407,13 +413,13 @@ async function prepareReview({
       hostExec,
       reviewToken,
       reviewers: [],
-      routeNote: `${gate.criteria.length} acceptance criteria — a QA tester checks them before any reviewer`,
+      routeNote: `review clean — a QA tester checks ${gate.criteria.length} acceptance criteria`,
       prompt: '',
       reviewerPrompt: '',
       verify: prepareVerify({ ticket, repoRoot, criteria: gate.criteria, checkMade }),
     };
   }
-  if (gate.kind === 'blocked') {
+  if (qaNext && gate.kind === 'blocked') {
     // Still a round, so maxReviewRounds counts it. Marked, so nobody reads the last reviewer's
     // verdict as this round's.
     recordReviewOnce(checksOutcome, { qaBlocked: true });
@@ -521,6 +527,13 @@ async function prepareReview({
     reviewerPrompt: first.reviewerPrompt,
     verify: null,
   };
+}
+
+// True when a recorded clean verdict covers the code at HEAD. Only then do the criteria come next.
+function cleanReviewOnHead(stateDir: string, ticket: Ticket): boolean {
+  if (!ticket.worktree || ticket.reviewedTree !== headTree(ticket.worktree)) return false;
+  const { verdict } = ergonReviewStatus({ stateDir, id: ticket.id });
+  return verdict.verdict === 'clean' && verdict.source === VERDICT_SOURCE.KRISIS;
 }
 
 // Starts the review as its own process, so it is a real fresh reviewer.

@@ -6,6 +6,5 @@ export * from './verificationGap.js';
 export * from './prompts.js';
 export * from './dispatch.js';
 export * from './report.js';
-export * from './reviewerStarted.js';
 export * from './verifierEnded.js';
 export * from './strictLevel.js';
