@@ -62,11 +62,25 @@ export function checkAgentCmd(
     // Which role's candidate to probe. Defaults to the reviewer, so every existing
     // caller keeps the behaviour it had before a second role existed.
     role = 'reviewer',
-  }: { run?: RunProbe; env?: NodeJS.ProcessEnv; role?: string } = {},
+    // Answers already seen in this install, by command. Two roles with the same command pay once.
+    seen,
+  }: {
+    run?: RunProbe;
+    env?: NodeJS.ProcessEnv;
+    role?: string;
+    seen?: Map<string, ProbeResult>;
+  } = {},
 ): ProbeResult {
   const cmd = CANDIDATE_CMD[role]?.[platform];
   if (!cmd) return { cmd: null, why: `no ${role} command is known for "${platform}"` };
+  const known = seen?.get(cmd);
+  if (known) return known;
+  const result = probe(cmd, platform, run, env);
+  seen?.set(cmd, result);
+  return result;
+}
 
+function probe(cmd: string, platform: string, run: RunProbe, env: NodeJS.ProcessEnv): ProbeResult {
   // The CLI's own name, not shellArgv's — that returns the shell that would run it.
   const binary = cmd.trim().split(/\s+/)[0];
   if (!binary || !onPath(binary, env)) {

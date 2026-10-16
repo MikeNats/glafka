@@ -50,4 +50,6 @@ export const CANDIDATE_CMD: Record<string, Record<string, string>> = {
   reviewer: CANDIDATE_REVIEWER_CMD,
   reporter: CANDIDATE_REPORTER_CMD,
   verifier: CANDIDATE_VERIFIER_CMD,
+  // A coder edits files and runs commands: the reporter's command. glafka gives each role its tools.
+  coder: CANDIDATE_REPORTER_CMD,
 };

@@ -7,6 +7,8 @@ import {
   readWorkspaceProposalListing,
 } from '../../../src/commands/odysse/odysse.js';
 import type { CbmFns } from '../../../src/commands/odysse/odysse.js';
+import { checksFromFiles, proposeChecks } from '../../../src/commands/odysse/checksFromFiles.js';
+import { waitForCodeGraph } from '../../../src/commands/install/codeGraph.js';
 import { readProposals, proposeEthos } from '../../../src/memory/ethos.js';
 import { AUDIT_STAGES } from '../../../src/audit/record.js';
 import { ROLES } from '../../../src/types/ticket.js';
@@ -111,8 +113,20 @@ export async function runOdysse({
     }
   }
 
-  // A small agent, separate from the full scan.
+  // package.json first: no agent, no wait. A small agent, separate from the full scan, otherwise.
   async function runChecksScan() {
+    const found = checksFromFiles(repoRoot);
+    if (found) {
+      proposeChecks(repoRoot, found);
+      console.error('odysse: found in package.json, no agent needed');
+      const proposed = readWorkspaceProposalListing(repoRoot);
+      console.error(
+        `\n--- ${proposed.length} workspace setting(s) proposed, awaiting your decision ---`,
+      );
+      console.error(proposed.map((label, i) => `  ${i + 1}. ${label}`).join('\n'));
+      console.error(decisionFooter('--workspace-keep', atTty));
+      return;
+    }
     const { prompt } = odysseChecks({ repoRoot });
     const { policy } = resolvePolicy({ repoRoot });
     const ranAgent = await deliverPrompt(prompt, {
@@ -198,6 +212,11 @@ export async function runOdysse({
   }
 
   async function runFullScan() {
+    // Install starts the code map tool's download in the background; the map needs it.
+    const downloadFailed = cbm ? null : await waitForCodeGraph();
+    if (downloadFailed) {
+      console.error(`odysse: the code map download failed (${downloadFailed})`);
+    }
     const result = odysse({ repoRoot, cbm });
 
     if (result.cbmIndexed) {

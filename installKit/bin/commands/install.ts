@@ -4,7 +4,8 @@ import { superpowersReminder } from '../../../src/superpowers.js';
 import { assertKnownFlags } from '../cli/args.js';
 import { resolvePolicy, PROJECT_POLICY_PATH } from '../../guardrails/index.js';
 import { checkAgentCmd, writeAgentCmd } from '../../../src/commands/install/checkAgentCmd.js';
-import { verifierSetupSkip } from '../../../src/commands/install/verifierSetup.js';
+import type { ProbeResult } from '../../../src/commands/install/checkAgentCmd.js';
+import { roleSetupSkip } from '../../../src/commands/install/verifierSetup.js';
 import { seedStandards } from '../../../src/commands/install/seedStandards.js';
 import type { SeedResult } from '../../../src/commands/install/seedStandards.js';
 import { STANDARDS_DIR } from '../../../src/memory/standards.js';
@@ -101,97 +102,82 @@ function guardrailsSection(repoRoot: string): string[] {
   ];
 }
 
-// Reviews only ever ran as a separate process when someone hand-wrote an agent command into
-// .glafka.json, and nobody knew to — so the fresh-context review the docs promise never happened.
-// Set it up here instead, for whichever agent was just installed. The command is RUN before it is
-// written: a command that only looks right is the expensive failure, because a bare `claude -p`
-// exits 0 having done nothing and glafka records that as a finished run.
-function reviewerSection(repoRoot: string, platforms: string[]): string[] {
+// What install says about one agent role: when it was written, and when no agent could be.
+interface RoleText {
+  done: string;
+  failed: string;
+  manual: string[];
+}
+
+// Each role is probed before it is written: a command that only LOOKS right is the expensive
+// failure, because a bare `claude -p` exits 0 having done nothing and glafka records a finished run.
+// - reviewer: read-only on purpose, so reviews run with fresh context.
+// - reporter: WRITES (odysse, epistle's doc sync, genesis drafts). Never the reviewer's command:
+//   refused every edit, it exits 0. Without one, those steps printed their prompt and did nothing.
+// - verifier: the QA tester. Runs shell commands, should not edit the code it tests.
+// - coder: runs tickets on their own (`ergon --background`, Elaia).
+const ROLE_TEXT: Record<string, RoleText> = {
+  reviewer: {
+    done: 'reviews run as their own process',
+    failed: 'reviews run in this session',
+    manual: [
+      '  `glafka ergon <id> --review` prints the brief for this session to act on,',
+      '  which is a real review. Set "agents": { "reviewer": ... } in .glafka.json',
+      '  for one that runs as its own process, with no shared context.',
+    ],
+  },
+  reporter: {
+    done: 'doc and architecture updates run as their own process',
+    failed: 'doc and architecture updates run in this session',
+    manual: [
+      "  `odysse` and `epistle`'s doc steps will PRINT their prompt for this session",
+      '  to act on. Set "agents": { "reporter": ... } in .glafka.json for one that',
+      '  runs as its own process.',
+    ],
+  },
+  verifier: {
+    done: 'QA testing runs as its own process',
+    failed: 'QA testing needs a person',
+    manual: [
+      '  with acceptance criteria, `glafka ergon <id> --review` then needs a person at a',
+      '  terminal. Set "agents": { "verifier": ... } in .glafka.json for one that runs as',
+      '  its own process. It must be allowed to run shell commands.',
+    ],
+  },
+  coder: {
+    done: 'tickets can run on their own',
+    failed: 'tickets are coded in this session',
+    manual: [
+      '  `glafka ergon <id>` prints the brief for this session to act on. Set',
+      '  "agents": { "coder": ... } in .glafka.json for a coder that runs on its own.',
+    ],
+  },
+};
+
+// Probes the first platform that works, writes `agents.<role>`, and says what happened.
+function roleSection(
+  repoRoot: string,
+  platforms: string[],
+  role: string,
+  seen: Map<string, ProbeResult>,
+): string[] {
+  const text = ROLE_TEXT[role]!;
+  // Roles that fall back to agents.default: writing one would override it.
+  const skip = role === 'verifier' || role === 'coder' ? roleSetupSkip(repoRoot, role) : null;
+  if (skip) return ['', text.done, `  ${skip}`];
   for (const platform of platforms) {
-    const { cmd, why } = checkAgentCmd(platform);
+    const { cmd, why } = checkAgentCmd(platform, { role, seen });
     if (!cmd) {
       // Try the next agent this project installed; only report once none of them worked.
       if (platform !== platforms[platforms.length - 1]) continue;
-      return [
-        '',
-        'reviews run in this session',
-        `  no reviewer agent could be set up — ${why}`,
-        '  `glafka ergon <id> --review` prints the brief for this session to act on,',
-        '  which is a real review. Set "agents": { "reviewer": ... } in .glafka.json',
-        '  for one that runs as its own process, with no shared context.',
-      ];
+      return ['', text.failed, `  no ${role} agent could be set up — ${why}`, ...text.manual];
     }
-    const { written, reason } = writeAgentCmd(repoRoot, 'reviewer', cmd);
+    const { written, reason } = writeAgentCmd(repoRoot, role, cmd);
     return [
       '',
-      'reviews run as their own process',
+      text.done,
       written
-        ? `  ${platform} answered a test prompt, so it is now .glafka.json's "agents.reviewer"`
-        : `  left as it is — ${reason}`,
-    ];
-  }
-  return [];
-}
-
-// The role install used to leave unset on EVERY default install. `odysse`, `epistle`'s doc sync and
-// architecture update, and the `genesis` drafts all resolve it, and with nothing there they printed
-// their prompt and exited 0 with nothing recorded as skipped — so a project's architecture map went
-// quietly stale and the push that was supposed to update it reported success. Writing only the
-// reviewer was never a decision, it was the feature stopping one role short of finished.
-//
-// Probed separately from the reviewer, not copied from it: the reviewer command is deliberately
-// read-only, and a reporter that cannot write is refused every edit and exits 0 — which glafka
-// records as a finished run.
-function reporterSection(repoRoot: string, platforms: string[]): string[] {
-  for (const platform of platforms) {
-    const { cmd, why } = checkAgentCmd(platform, { role: 'reporter' });
-    if (!cmd) {
-      if (platform !== platforms[platforms.length - 1]) continue;
-      return [
-        '',
-        'doc and architecture updates run in this session',
-        `  no reporter agent could be set up — ${why}`,
-        "  `odysse` and `epistle`'s doc steps will PRINT their prompt for this session",
-        '  to act on. Set "agents": { "reporter": ... } in .glafka.json for one that',
-        '  runs as its own process.',
-      ];
-    }
-    const { written, reason } = writeAgentCmd(repoRoot, 'reporter', cmd);
-    return [
-      '',
-      'doc and architecture updates run as their own process',
-      written
-        ? `  ${platform} answered a test prompt, so it is now .glafka.json's "agents.reporter"`
-        : `  left as it is — ${reason}`,
-    ];
-  }
-  return [];
-}
-
-// The QA tester, set up like the reporter, with its own command: it must run shell
-// commands (curl, the project's CLI), and it should not edit the code it tests.
-function verifierSection(repoRoot: string, platforms: string[]): string[] {
-  const skip = verifierSetupSkip(repoRoot);
-  if (skip) return ['', 'QA testing runs as its own process', `  ${skip}`];
-  for (const platform of platforms) {
-    const { cmd, why } = checkAgentCmd(platform, { role: 'verifier' });
-    if (!cmd) {
-      if (platform !== platforms[platforms.length - 1]) continue;
-      return [
-        '',
-        'QA testing needs a person',
-        `  no verifier agent could be set up — ${why}`,
-        '  with acceptance criteria, `glafka ergon <id> --review` then needs a person at a',
-        '  terminal. Set "agents": { "verifier": ... } in .glafka.json for one that runs as',
-        '  its own process. It must be allowed to run shell commands.',
-      ];
-    }
-    const { written, reason } = writeAgentCmd(repoRoot, 'verifier', cmd);
-    return [
-      '',
-      'QA testing runs as its own process',
-      written
-        ? `  ${platform} answered a test prompt, so it is now .glafka.json's "agents.verifier"`
+        ? `  ${platform} answered a test prompt, so it is now .glafka.json's "agents.${role}"`
         : `  left as it is — ${reason}`,
     ];
   }
@@ -270,9 +256,11 @@ export function runInstall({
   }
 
   out.push('', ...guardrailsSection(repoRoot));
-  out.push(...reviewerSection(repoRoot, stamped));
-  out.push(...reporterSection(repoRoot, stamped));
-  out.push(...verifierSection(repoRoot, stamped));
+  // Roles with the same command share one probe: claude needs two, every other agent one.
+  const seen = new Map<string, ProbeResult>();
+  for (const role of ['reviewer', 'reporter', 'verifier', 'coder']) {
+    out.push(...roleSection(repoRoot, stamped, role, seen));
+  }
 
   out.push(...standardsOutput({ withStandards, repoRoot, packageRoot }));
   if (withCodeGraph) out.push(...installCodeGraph());

@@ -11,14 +11,15 @@ function configuredAgents(repoRoot: string): Record<string, unknown> {
   }
 }
 
-// Why install must not probe and write agents.verifier, or null when it should. A probe is a
-// paid run, and agents.verifier would override the default the project already relies on.
-export function verifierSetupSkip(repoRoot: string, env = process.env): string | null {
+const WHO: Record<string, string> = { verifier: 'the QA tester', coder: 'the coder' };
+
+// Why install must not probe and write agents.<role>, or null when it should. A probe is a
+// paid run, and agents.<role> would override the default the project already relies on.
+export function roleSetupSkip(repoRoot: string, role: string, env = process.env): string | null {
   const agents = configuredAgents(repoRoot);
-  if (agents.verifier) return 'left as it is — a verifier is already configured';
-  if (agents.default) return 'agents.verifier not written — the QA tester uses agents.default';
-  if (env.GLAFKA_AGENT_CMD) {
-    return 'agents.verifier not written — the QA tester uses GLAFKA_AGENT_CMD';
-  }
+  const who = WHO[role] ?? `the ${role}`;
+  if (agents[role]) return `left as it is — a ${role} is already configured`;
+  if (agents.default) return `agents.${role} not written — ${who} uses agents.default`;
+  if (env.GLAFKA_AGENT_CMD) return `agents.${role} not written — ${who} uses GLAFKA_AGENT_CMD`;
   return null;
 }

@@ -16,7 +16,11 @@ scoped to whatever each ticket touched.
 glafka odysse
 ```
 
-Its stdout **is** the brief — the full file tree, plus instructions for
+**If it prints `odysse: indexed by codebase-memory-mcp`, you are done.**
+The map is a code graph, built in seconds with no AI. There is nothing to
+write and no conventions to ask about. Say "Code map done." and stop.
+
+Otherwise its stdout **is** the brief — the full file tree, plus instructions for
 what to write and where. Nothing here is agent-specific; the prompt
 carries the whole task.
 
@@ -31,7 +35,7 @@ around it writes rules nobody approved and nobody hears about it.
 
 ## 2. Do the work
 
-This takes a while — twenty minutes and up on a real repo. **One checklist is
+Only when step 1 printed a brief. This takes a while — twenty minutes and up on a real repo. **One checklist is
 the entire terminal for that whole time.** Write the plan out as five to ten
 items before reading anything, then tick them off in whatever task list your
 harness redraws in place.
