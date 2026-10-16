@@ -19,7 +19,8 @@ import {
   VerifyBlockedError,
   VerifyStillOpenError,
 } from '../../src/commands/ergon/ergon.js';
-import { checkoutBranchIn, headCommit } from '../../src/util/git.js';
+import { checkoutBranchIn, headCommit, headTree } from '../../src/util/git.js';
+import { runFiles } from '../../src/ticket/paths.js';
 import {
   readTicket,
   isClosed,
@@ -40,6 +41,8 @@ import {
   appendVerifyResult,
   markNotified,
   wasNotified,
+  startCleanRound,
+  setReviewedTree,
 } from '../../src/ticket/ticketStore.js';
 import { codeState } from '../../src/commands/epalitheusis/codeState.js';
 import {
@@ -936,6 +939,19 @@ async function committedTicket(content: string) {
   return { repoRoot, stateDir, ticket };
 }
 
+// A finished reviewer whose trusted clean verdict covers the code at HEAD. QA comes after it.
+function cleanReview(stateDir: string, id: string, worktree: string) {
+  const token = startCleanRound(stateDir, id);
+  setReviewedTree(stateDir, id, headTree(worktree));
+  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
+  const { dir, pidPath, exitCodePath, logPath } = runFiles(stateDir, id, 'reviewer');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(pidPath, '999999');
+  fs.writeFileSync(exitCodePath, '0');
+  fs.writeFileSync(logPath, '');
+  appendReviewFinding(stateDir, id, { verdict: 'clean', token, callerOrigin: 'inside' });
+}
+
 test('AC-14: no AC → reviewers are prepared as today', { concurrency: true }, async () => {
   const { repoRoot, stateDir, ticket } = await committedTicket('task');
   const prepared = await ergonReview({ stateDir, id: ticket.id, repoRoot, baseRef: 'main' });
@@ -944,14 +960,22 @@ test('AC-14: no AC → reviewers are prepared as today', { concurrency: true }, 
 });
 
 test(
-  'AC-4: with AC, review returns the verifier and writes no review entry',
+  'AC-4: with AC, the reviewers come first, and the verifier only after a clean review',
   { concurrency: true },
   async () => {
     const { repoRoot, stateDir, ticket } = await committedTicket(AC_SPEC);
+    const first = await ergonReview({ stateDir, id: ticket.id, repoRoot, baseRef: 'main' });
+    assert.equal(first.verify, null);
+    assert.ok(first.reviewers.length > 0);
+
+    cleanReview(stateDir, ticket.id, ticket.worktree!);
+    const entries = readTicket(stateDir, ticket.id).stageLog.length;
     const prepared = await ergonReview({ stateDir, id: ticket.id, repoRoot, baseRef: 'main' });
     assert.ok(prepared.verify);
     assert.deepEqual(prepared.reviewers, []);
-    assert.equal(lastReviewOutcome(readTicket(stateDir, ticket.id)), null);
+    // Starting QA writes no review entry, and keeps the clean verdict it follows.
+    assert.equal(readTicket(stateDir, ticket.id).stageLog.length, entries);
+    assert.equal(reviewFindings(readTicket(stateDir, ticket.id))[0]!.verdict, 'clean');
   },
 );
 
@@ -960,6 +984,7 @@ test(
   { concurrency: true },
   async () => {
     const { repoRoot, stateDir, ticket } = await committedTicket(AC_SPEC);
+    cleanReview(stateDir, ticket.id, ticket.worktree!);
     openVerifyRound(stateDir, ticket.id, {
       token: 'tok',
       ...codeState(ticket.worktree!),
@@ -981,6 +1006,7 @@ test(
   { concurrency: true },
   async () => {
     const { repoRoot, stateDir, ticket } = await committedTicket(AC_SPEC);
+    cleanReview(stateDir, ticket.id, ticket.worktree!);
     openVerifyRound(stateDir, ticket.id, {
       token: 'tok',
       ...codeState(ticket.worktree!),
@@ -1069,13 +1095,14 @@ test(
 );
 
 // The in-session flow: `--status` showed the fail, the coder fixed it and committed. One
-// `--review` must start the new QA round, not report the old fail again.
+// `--review` must review the fix, not report the old fail again; QA follows a clean review.
 test(
-  'a committed fix after --status closed a fail: one --review starts a new round',
+  'a committed fix after --status closed a fail: one --review reviews it, then QA runs again',
   { concurrency: true },
   async () => {
     const { repoRoot, stateDir, ticket } = await committedTicket(AC_SPEC);
     const worktree = ticket.worktree!;
+    cleanReview(stateDir, ticket.id, worktree);
     openVerifyRound(stateDir, ticket.id, { token: 'tok', ...codeState(worktree), spawned: false });
     appendVerifyResult(stateDir, ticket.id, { ac: 'AC-1', result: 'fail', evidence: 'got 500' });
     assert.equal(closeRoundIfEnded({ stateDir, id: ticket.id }), true);
@@ -1083,9 +1110,13 @@ test(
     execFileSync('git', ['add', 'fix.txt'], { cwd: worktree });
     execFileSync('git', ['commit', '-q', '-m', 'fix'], { cwd: worktree });
 
+    const review = await ergonReview({ stateDir, id: ticket.id, repoRoot, baseRef: 'main' });
+    assert.equal(review.verify, null, 'the fix is reviewed first');
+    assert.ok(review.reviewers.length > 0);
+
+    cleanReview(stateDir, ticket.id, worktree);
     const prepared = await ergonReview({ stateDir, id: ticket.id, repoRoot, baseRef: 'main' });
-    assert.ok(prepared.verify, 'a new QA round is due on the first call');
-    assert.equal(lastReviewOutcome(readTicket(stateDir, ticket.id)), null);
+    assert.ok(prepared.verify, 'a new QA round is due after the clean review');
   },
 );
 
@@ -1096,6 +1127,7 @@ test(
   async () => {
     const { repoRoot, stateDir, ticket } = await committedTicket(AC_SPEC);
     const worktree = ticket.worktree!;
+    cleanReview(stateDir, ticket.id, worktree);
     openVerifyRound(stateDir, ticket.id, { token: 'tok', ...codeState(worktree), spawned: false });
     appendVerifyResult(stateDir, ticket.id, { ac: 'AC-1', result: 'fail', evidence: 'got 500' });
     assert.equal(closeRoundIfEnded({ stateDir, id: ticket.id }), true);

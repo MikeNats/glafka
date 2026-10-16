@@ -85,7 +85,7 @@ export function assertLastRunOk(ticket: Ticket, action: string): void {
   );
 }
 
-// True when the newest `review` entry was stopped by the QA round, so no reviewer ran since.
+// True when the newest `review` entry is a QA round that stopped, so nobody acted on it yet.
 // It still counts as a round: that is what keeps maxReviewRounds a real limit.
 export function lastReviewQaBlocked(ticket: Ticket): boolean {
   const index = lastStageIndex(ticket, STAGES.REVIEW);

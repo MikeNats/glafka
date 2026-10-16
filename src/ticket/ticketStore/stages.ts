@@ -43,7 +43,7 @@ export function readStageLogFor(stateDir: string, id: string): StageLogEntry[] {
 
 // Adding to the end of a file is safe with two writers.
 // We check the stage first, because a bad entry can never be undone.
-// `qaBlocked` marks a review the QA round stopped before any reviewer ran.
+// `qaBlocked` marks a round the QA round stopped: its criteria failed or could not be checked.
 export function recordStage(
   stateDir: string,
   id: string,

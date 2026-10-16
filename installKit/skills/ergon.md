@@ -236,22 +236,24 @@ root-cause it before deciding it's a real blocking finding.
 
 Any failing check, either way, is an automatic blocking finding.
 
-## 3b. Acceptance criteria first — epalitheusis
+## 3b. Acceptance criteria after a clean review — epalitheusis
 
 ἐπαλήθευσις — verification. If the spec has an `## Acceptance criteria`
-section, `ergon --review` does not start a reviewer yet. Once the checks
-pass, it starts a fresh **QA tester** (role `verifier`, agent from
-`agents.verifier`, then `agents.default`, then `GLAFKA_AGENT_CMD`). The
-tester uses the running app from outside and records one result per
-criterion:
+section, the round is: checks → reviewer → QA. The review comes first
+because it is cheaper, and its fixes would change code a QA round had
+already passed. Once a recorded clean verdict covers the exact code,
+`ergon --review --status` (or the next `ergon --review`) starts a fresh
+**QA tester** (role `verifier`, agent from `agents.verifier`, then
+`agents.default`, then `GLAFKA_AGENT_CMD`). The tester uses the running app
+from outside and records one result per criterion:
 
     glafka epalitheusis <id> --ac AC-1 --result pass|fail|cannot --evidence "<command> → <what came back>"
 
 `ergon --review --status` shows one line per criterion. When the round ends:
 
-- **all pass** → that same `--status` call starts the reviewer.
+- **all pass** → done: the clean review and the criteria cover the same code.
 - **a fail** → a blocking finding. Fix it and **commit**, then run
-  `ergon --review` once: it starts a new QA round.
+  `ergon --review`: the changed code gets a new review, then a new QA round.
 - **a cannot** → the ticket stops for a person (aporia). Fix the setup and
   run `ergon --review` again, or skip that criterion.
 - **the worktree changed during the round, or a pass had no token** → not
@@ -259,14 +261,14 @@ criterion:
 
 A round that ends without all passes writes a `review` entry. Only the
 first entry after a coder run counts as a review round, so
-`maxReviewRounds` caps the QA → coder → QA loop; a retry with no coder run
+`maxReviewRounds` caps the review → QA → coder loop; a retry with no coder run
 in between is not counted again. A failed criterion on the last allowed
 round sends no coder: no round is left to check its work. "The same code" is the code when the
 round ended: a file the round itself left behind does not buy a free new
 round. A failed round stays locked until it is acted on while the committed
 code is the same: an uncommitted file alone does not throw the fail away, so
-`--review` reports it again. A pass on uncommitted changes starts no
-reviewer: commit them, or gitignore/delete them if they are generated, then
+`--review` reports it again. A pass on uncommitted changes is not done:
+commit them, or gitignore/delete them if they are generated, then
 verify again.
 `vima` never starts a new QA round on its own after one stopped — a person
 runs `ergon --review` to start it.

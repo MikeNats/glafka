@@ -282,7 +282,10 @@ test('buildErgonPrompt states the exact check command when one is configured', (
     checksCmd: 'uv run pytest && uv run mypy .',
   });
 
-  assert.match(prompt, /run exactly this and see it\s*exit 0 — `uv run pytest && uv run mypy \.`/);
+  assert.match(
+    prompt,
+    /run the full checks ONCE and see them exit 0 —\s*`uv run pytest && uv run mypy \.`/,
+  );
   assert.match(prompt, /Do not substitute your own command/);
 });
 

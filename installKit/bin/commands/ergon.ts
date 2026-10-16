@@ -18,7 +18,6 @@ import {
   codeFor,
   codeChanges,
   roundCode,
-  reviewerStartedSinceRound,
   settleVerifierRun,
   strictLevelWarning,
   type VerifyPrepared,
@@ -38,6 +37,7 @@ import {
   describeTicket,
   reviewerRoles,
   activeCriteria,
+  lastReviewQaBlocked,
 } from '../../../src/ticket/ticketStore.js';
 import { formatPendingListing } from '../../../src/memory/ethosGate.js';
 import {
@@ -50,6 +50,7 @@ import {
 import { keepArg, assertKnownFlags } from '../cli/args.js';
 import { hasTty } from '../cli/tty.js';
 import { glafkaCli } from '../../../src/util/cli.js';
+import { headTree } from '../../../src/util/git.js';
 import { deliverPrompt } from '../agent/deliverPrompt.js';
 import { reportGuardrails } from '../agent/guardrailsReport.js';
 import type { Config } from '../../../src/types/config.js';
@@ -90,56 +91,9 @@ async function printReviewStatus({
 }): Promise<void> {
   const id = args.find((arg) => !arg.startsWith('--'));
   if (!id) throw new Error('usage: glafka ergon <ticket-id> --review --status');
-  // Step 2 of the round: the acceptance criteria. Shown first, and it may start the reviewer.
+  // Closes an ended QA round before anything is read. The criteria are step 3, shown below.
   const gate = verifyGate({ stateDir, id, maxRuntimeMs: config.ergonTimeoutMs });
   settleVerifierRun({ stateDir, id, observability: config.observability.enabled });
-  const current = readTicket(stateDir, id);
-  if (gate.kind !== 'skip' && current.verification) {
-    const runState = backgroundStatus({ stateDir, id, role: ROLES.VERIFIER }).state;
-    for (const line of formatVerifyBlock(current, runState)) console.log(line);
-    if (gate.kind === 'passed' && gate.justClosed) {
-      console.log(`  all acceptance criteria passed — starting the review`);
-      // The same terminal check as --review, so the clean token still needs a person.
-      return runReviewRound({
-        args: [id],
-        repoRoot,
-        stateDir,
-        config,
-        personaContent,
-        profile,
-        hasTty: hasTtyFn,
-      });
-    }
-    if (gate.kind === 'blocked' && current.verification.outcome === 'failed') {
-      // A committed fix starts a new round on the next --review. Uncommitted edits do not.
-      console.log(`  fix the failed criteria and commit, then run: glafka ergon ${id} --review`);
-    }
-    // A pass on uncommitted changes: no reviewer until they are committed.
-    if (gate.kind === 'blocked' && gate.outcome === 'passed') console.log(`  ${gate.detail}`);
-    if (gate.kind === 'start') {
-      // A new round is due for one of two reasons. Say the true one.
-      const changed =
-        !current.worktree ||
-        codeChanges(
-          roundCode(current.verification),
-          codeFor(current.verification, current.worktree),
-        ).length > 0;
-      console.log(
-        changed
-          ? `  the code changed since this round — glafka ergon ${id} --review starts a new one`
-          : `  this round's outcome was already acted on — glafka ergon ${id} --review starts a new one`,
-      );
-    }
-    if (gate.kind !== 'passed') return;
-  }
-  // A verdict on disk from before this QA round is about other code. Name the next step instead.
-  if (current.verification && !reviewerStartedSinceRound(stateDir, current)) {
-    console.log(
-      `${id}  no reviewer has started since this QA round, so no verdict yet is about this code\n` +
-        `  start the review: glafka ergon ${id} --review`,
-    );
-    return;
-  }
   const { ticket, status, runs, findings, verdict } = ergonReviewStatus({
     stateDir,
     id,
@@ -207,6 +161,57 @@ async function printReviewStatus({
       // Already covered by the run state printed above.
       break;
   }
+
+  // Step 3: the acceptance criteria, checked only after a recorded clean review of this code.
+  if (gate.kind === 'skip') return;
+  const current = readTicket(stateDir, id);
+  if (current.verification) {
+    const runState = backgroundStatus({ stateDir, id, role: ROLES.VERIFIER }).state;
+    for (const line of formatVerifyBlock(current, runState)) console.log(line);
+  }
+  if (verdict.verdict !== 'clean' || verdict.source !== 'krisis') return;
+  // A clean verdict on older code says nothing about this code.
+  if (!current.worktree || current.reviewedTree !== headTree(current.worktree)) {
+    console.log(
+      `  the code changed since the clean review — start the review: glafka ergon ${id} --review`,
+    );
+    return;
+  }
+  if (gate.kind === 'passed') {
+    console.log(`  all acceptance criteria passed — ready`);
+    return;
+  }
+  if (gate.kind === 'blocked' && gate.outcome === 'failed') {
+    // A committed fix gets a new review, then a new QA round. Uncommitted edits do not.
+    console.log(`  fix the failed criteria and commit, then run: glafka ergon ${id} --review`);
+    return;
+  }
+  // A pass on uncommitted changes: not done until they are committed.
+  if (gate.kind === 'blocked' && gate.outcome === 'passed') console.log(`  ${gate.detail}`);
+  if (gate.kind !== 'start') return;
+  // A round on this code already ended and was acted on. Only a person starts the next one.
+  if (lastReviewQaBlocked(current)) {
+    // A new round is due for one of two reasons. Say the true one.
+    const round = current.verification;
+    const changed =
+      round !== null && codeChanges(roundCode(round), codeFor(round, current.worktree)).length > 0;
+    console.log(
+      changed
+        ? `  the code changed since this round — glafka ergon ${id} --review starts a new one`
+        : `  this round's outcome was already acted on — glafka ergon ${id} --review starts a new one`,
+    );
+    return;
+  }
+  console.log(`  review clean — starting the QA round`);
+  return runReviewRound({
+    args: [id],
+    repoRoot,
+    stateDir,
+    config,
+    personaContent,
+    profile,
+    hasTty: hasTtyFn,
+  });
 }
 
 // A person decides which findings to keep. It does not review again.
@@ -535,7 +540,7 @@ async function runReviewRound({
   let qaNotStarted = 0;
   for (const round of prepared) {
     const { ticket, prompt, reviewers, routeNote, reviewToken, verify } = round;
-    // The acceptance criteria come first. No reviewer until they pass.
+    // A clean review left the acceptance criteria: a QA tester checks them on the same code.
     if (verify) {
       const qaRound = { ...round, verify };
       const args = { round: qaRound, verifierCmd, repoRoot, stateDir, hasTty: hasTtyFn };

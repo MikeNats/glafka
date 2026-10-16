@@ -29,7 +29,10 @@ import {
   RUN_OUTCOMES,
   REVIEW_VERDICT,
   wasNotified,
+  startCleanRound,
+  setReviewedTree,
 } from '../../src/ticket/ticketStore.js';
+import { headTree } from '../../src/util/git.js';
 import { withoutAgentCmd } from '../helpers/noAgentEnv.js';
 
 // These tests need no agent configured. Cleared here, so running this file directly is safe too.
@@ -870,7 +873,24 @@ test('runVima with no id and two open tickets names both', async () => {
 });
 
 // --------------------------------------------------------------------------- The QA tester
-// checks the acceptance criteria before any reviewer starts. ------------------------------------
+// checks the acceptance criteria after a clean review of the same code. ------------------------
+
+// A finished reviewer whose trusted clean verdict covers the code at HEAD.
+function cleanReview(stateDir: string, id: string) {
+  const token = startCleanRound(stateDir, id);
+  setReviewedTree(stateDir, id, headTree(readTicket(stateDir, id).worktree!));
+  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
+  fakeFinishedRun(stateDir, id, 'reviewer');
+  appendReviewFinding(stateDir, id, { verdict: 'clean', token, callerOrigin: 'inside' });
+}
+
+// Runs the coder to the end, then records a clean review of what it committed.
+async function codedAndReviewed(args: Parameters<typeof vima>[0]) {
+  await vima(args);
+  const { stateDir, id } = args;
+  await waitFor(() => backgroundStatus({ stateDir, id, role: 'coder' }).state === 'finished');
+  cleanReview(stateDir, id);
+}
 
 const AC_SPEC = '# T\n\n## Acceptance criteria\n\n- AC-1: a → b → c\n';
 
@@ -880,7 +900,7 @@ const passingVerifier = (id: string) =>
   `node "${BIN}" epalitheusis ${id} --ac AC-1 --result pass --evidence "echo hi → hi" --token "$token"`;
 
 test(
-  'vima runs the QA tester before the reviewer, then reaches ready',
+  'vima runs the reviewer before the QA tester, then reaches ready',
   { concurrency: true },
   async () => {
     const repoRoot = makeGitRepo();
@@ -899,16 +919,16 @@ test(
       () => backgroundStatus({ stateDir, id: ticket.id, role: 'coder' }).state === 'finished',
     );
 
-    const verifying = await vima({ stateDir, id: ticket.id, repoRoot, config });
-    assert.equal(verifying.action, 'spawned-verifier');
-    await waitFor(
-      () => backgroundStatus({ stateDir, id: ticket.id, role: 'verifier' }).state === 'finished',
-    );
-
     const reviewing = await vima({ stateDir, id: ticket.id, repoRoot, config });
     assert.equal(reviewing.action, 'spawned-reviewer');
     await waitFor(
       () => backgroundStatus({ stateDir, id: ticket.id, role: 'reviewer' }).state === 'finished',
+    );
+
+    const verifying = await vima({ stateDir, id: ticket.id, repoRoot, config });
+    assert.equal(verifying.action, 'spawned-verifier');
+    await waitFor(
+      () => backgroundStatus({ stateDir, id: ticket.id, role: 'verifier' }).state === 'finished',
     );
 
     const ready = await vima({ stateDir, id: ticket.id, repoRoot, config });
@@ -923,10 +943,7 @@ test('vima waits while the QA tester runs', { concurrency: true }, async () => {
   const config = baseConfig({ agents: { coder: COMMITTING_CODER, verifier: 'sleep 30' } });
 
   try {
-    await vima({ stateDir, id: ticket.id, repoRoot, config });
-    await waitFor(
-      () => backgroundStatus({ stateDir, id: ticket.id, role: 'coder' }).state === 'finished',
-    );
+    await codedAndReviewed({ stateDir, id: ticket.id, repoRoot, config });
     assert.equal(
       (await vima({ stateDir, id: ticket.id, repoRoot, config })).action,
       'spawned-verifier',
@@ -949,10 +966,7 @@ test('vima stops a QA tester that ran past the time limit', { concurrency: true 
   });
 
   try {
-    await vima({ stateDir, id: ticket.id, repoRoot, config });
-    await waitFor(
-      () => backgroundStatus({ stateDir, id: ticket.id, role: 'coder' }).state === 'finished',
-    );
+    await codedAndReviewed({ stateDir, id: ticket.id, repoRoot, config });
     assert.equal(
       (await vima({ stateDir, id: ticket.id, repoRoot, config })).action,
       'spawned-verifier',
@@ -995,10 +1009,7 @@ test(
     const ticket = await genesis({ repoRoot, stateDir, content: AC_SPEC, planContent: '1. do it' });
     const config = baseConfig({ agents: { coder: COMMITTING_CODER } });
 
-    await vima({ stateDir, id: ticket.id, repoRoot, config });
-    await waitFor(
-      () => backgroundStatus({ stateDir, id: ticket.id, role: 'coder' }).state === 'finished',
-    );
+    await codedAndReviewed({ stateDir, id: ticket.id, repoRoot, config });
     const result = await vima({ stateDir, id: ticket.id, repoRoot, config });
     assert.equal(result.action, 'none');
     assert.match(result.reason!, /no verifier agent configured/);
@@ -1009,7 +1020,7 @@ test(
 const recordingVerifier = (id: string, result: 'fail' | 'cannot') =>
   `cat > /dev/null; node "${BIN}" epalitheusis ${id} --ac AC-1 --result ${result} --evidence "curl /x → 500"`;
 
-// Runs the coder, then the QA tester, and returns the tick after the tester ended.
+// Runs the coder, a clean review, then the QA tester, and returns the tick after the tester ended.
 async function tickAfterVerifier(result: 'fail' | 'cannot') {
   const repoRoot = makeGitRepo();
   const stateDir = stateDirFor(repoRoot);
@@ -1018,8 +1029,7 @@ async function tickAfterVerifier(result: 'fail' | 'cannot') {
     agents: { coder: COMMITTING_CODER, verifier: recordingVerifier(ticket.id, result) },
   });
   const id = ticket.id;
-  await vima({ stateDir, id, repoRoot, config });
-  await waitFor(() => backgroundStatus({ stateDir, id, role: 'coder' }).state === 'finished');
+  await codedAndReviewed({ stateDir, id, repoRoot, config });
   assert.equal((await vima({ stateDir, id, repoRoot, config })).action, 'spawned-verifier');
   await waitFor(() => backgroundStatus({ stateDir, id, role: 'verifier' }).state === 'finished');
   const after = await vima({ stateDir, id, repoRoot, config });
@@ -1052,10 +1062,10 @@ test(
   },
 );
 
-// The previous round's reviewer said blocking. A QA round that then ends blocked must stop
-// vima, not let it read that old log line and pay for a coder with stale findings.
+// A QA round after a clean review ends blocked. It must stop vima, and the next tick must not
+// try it again: only a person starts the next round.
 test(
-  'a blocked QA round stops vima, even when an old reviewer log says blocking',
+  'a blocked QA round stops vima, and the next tick does not retry it',
   { concurrency: true },
   async () => {
     const repoRoot = makeGitRepo();
@@ -1067,11 +1077,8 @@ test(
     execFileSync('git', ['add', 'done.txt'], { cwd: worktree });
     execFileSync('git', ['commit', '-q', '-m', 'did it'], { cwd: worktree });
     recordStage(stateDir, id, STAGES.ERGON);
-    recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
-    fakeFinishedRun(stateDir, id, 'reviewer');
-    fs.writeFileSync(runFiles(stateDir, id, 'reviewer').logPath, 'VERDICT: blocking — stale\n');
-    recordStage(stateDir, id, STAGES.ERGON);
     fakeFinishedCoder(stateDir, id);
+    cleanReview(stateDir, id);
     // This round's QA tester ran and recorded nothing.
     openVerifyRound(stateDir, id, { token: 'tok', ...codeState(worktree), spawned: true });
     fakeFinishedRun(stateDir, id, 'verifier');
@@ -1093,8 +1100,8 @@ test(
   },
 );
 
-// M13: a ticket not reviewed yet, a QA tester that always fails, and a coder that commits a
-// fix each time. maxReviewRounds counts each QA → coder trip, so the paid runs stop.
+// M13: a ticket not reviewed yet, a clean reviewer, a QA tester that always fails, and a coder
+// that commits a fix each time. maxReviewRounds counts each review → QA → coder trip.
 test(
   'an AC that always fails stops at maxReviewRounds, however many ticks run',
   { concurrency: true },
@@ -1104,7 +1111,7 @@ test(
     const ticket = await genesis({ repoRoot, stateDir, content: AC_SPEC, planContent: '1. do it' });
     const id = ticket.id;
     const coder = `sh -c 'f=fix-$$.txt; echo x > $f && git add $f && git commit -q -m fix'`;
-    const agents = { coder, verifier: recordingVerifier(id, 'fail'), reviewer: 'cat > /dev/null' };
+    const agents = { coder, verifier: recordingVerifier(id, 'fail'), reviewer: cleanReviewer(id) };
     const config = baseConfig({ agents, maxReviewRounds: 2 });
     const roles = ['coder', 'verifier', 'reviewer'];
     const settled = () =>
@@ -1113,7 +1120,7 @@ test(
       );
     const results: Awaited<ReturnType<typeof vima>>[] = [];
     try {
-      for (let i = 0; i < 22; i++) {
+      for (let i = 0; i < 26; i++) {
         results.push(await vima({ stateDir, id, repoRoot, config }));
         await waitFor(settled);
       }
@@ -1121,7 +1128,7 @@ test(
       // The first coder, then one fix: the second failed round is the last one allowed.
       assert.equal(spawned('spawned-coder'), 2);
       assert.equal(spawned('spawned-verifier'), 2);
-      assert.equal(spawned('spawned-reviewer'), 0);
+      assert.equal(spawned('spawned-reviewer'), 2);
       const stop = results.findIndex((r) => /max review rounds \(2\) reached/.test(r.reason ?? ''));
       assert.ok(stop !== -1, 'the max-rounds stop was never reached');
       assert.deepEqual(

@@ -24,9 +24,13 @@ import {
   appendVerifyResult,
   addCriterionSkip,
   reviewRoundCount,
+  startCleanRound,
+  setReviewedTree,
+  appendReviewFinding,
   STAGES,
   RUN_OUTCOMES,
 } from '../../src/ticket/ticketStore.js';
+import { headTree } from '../../src/util/git.js';
 import { withoutAgentCmd } from '../helpers/noAgentEnv.js';
 
 // These tests need no agent configured. Cleared here, so running this file directly is safe too.
@@ -103,6 +107,15 @@ async function codedTicket({ guardrailsLevel = null }: { guardrailsLevel?: numbe
   return { repoRoot, stateDir, id: ticket.id, worktree };
 }
 
+// A finished reviewer whose trusted clean verdict covers the code at HEAD. QA comes after it.
+function cleanReview(stateDir: string, id: string, worktree: string) {
+  const token = startCleanRound(stateDir, id);
+  setReviewedTree(stateDir, id, headTree(worktree));
+  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
+  fakeFinishedRun(stateDir, id, 'reviewer');
+  appendReviewFinding(stateDir, id, { verdict: 'clean', token, callerOrigin: 'inside' });
+}
+
 // A spawned round whose QA tester already ended, with these results.
 function endedRound(
   stateDir: string,
@@ -134,8 +147,9 @@ function stopAll(stateDir: string, id: string) {
   for (const role of ROLES_SEEN) killBackground({ stateDir, id, role });
 }
 
-test('C1: vima closes a QA round a person restarted, and starts the reviewer', async () => {
+test('C1: vima closes a QA round a person restarted, and the ticket is ready', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree);
   const config = baseConfig({ verifier: IDLE, reviewer: IDLE });
   try {
@@ -162,19 +176,16 @@ test('C1: vima closes a QA round a person restarted, and starts the reviewer', a
     });
 
     const next = await vima({ stateDir, id, repoRoot, config });
-    assert.equal(next.action, 'spawned-reviewer');
+    assert.equal(next.action, 'ready');
     assert.equal(readTicket(stateDir, id).verification!.outcome, 'passed');
   } finally {
     stopAll(stateDir, id);
   }
 });
 
-test('C2: every AC skipped after a blocked round starts a reviewer, not a coder', async () => {
+test('C2: every AC skipped after a blocked round makes it ready, not a coder', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
-  // Round A: a reviewer said blocking, and a coder fixed it since.
-  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
-  fakeFinishedRun(stateDir, id, 'reviewer', 'VERDICT: blocking — stale, already fixed\n');
-  recordStage(stateDir, id, STAGES.ERGON);
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree, [{ result: 'cannot' }]);
   const config = baseConfig({ coder: IDLE, reviewer: IDLE });
   try {
@@ -186,7 +197,7 @@ test('C2: every AC skipped after a blocked round starts a reviewer, not a coder'
     addCriterionSkip(stateDir, id, { ac: 'AC-1', reason: 'no app for this ticket' });
 
     const after = await vima({ stateDir, id, repoRoot, config });
-    assert.equal(after.action, 'spawned-reviewer');
+    assert.equal(after.action, 'ready');
     assert.equal(backgroundStatus({ stateDir, id, role: 'coder' }).state, 'finished');
   } finally {
     stopAll(stateDir, id);
@@ -194,7 +205,8 @@ test('C2: every AC skipped after a blocked round starts a reviewer, not a coder'
 });
 
 test('C3: a QA tester that leaves a new file each run gets one round, not a loop', async () => {
-  const { repoRoot, stateDir, id } = await codedTicket();
+  const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   const config = baseConfig({ verifier: `${IDLE}; touch "evidence-$$.txt"` });
   try {
     const results = await tick(10, { stateDir, id, repoRoot, config });
@@ -215,6 +227,7 @@ for (const [name, results] of [
 ] as const) {
   test(`a blocked round (${name}) starts nothing over 7 vima ticks`, async () => {
     const { repoRoot, stateDir, id, worktree } = await codedTicket();
+    cleanReview(stateDir, id, worktree);
     endedRound(stateDir, id, worktree, [...results]);
     const config = baseConfig({ coder: IDLE, verifier: IDLE, reviewer: IDLE });
     try {
@@ -233,6 +246,7 @@ for (const [name, results] of [
 
 test('a person restarts QA and it blocks again: still nothing starts on its own', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree);
   const config = baseConfig({ coder: IDLE, verifier: IDLE, reviewer: IDLE });
   try {
@@ -259,7 +273,7 @@ test('a person restarts QA and it blocks again: still nothing starts on its own'
 
 test('a failed round acted on from a reviewed ticket is held to maxReviewRounds', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
-  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree, [{ result: 'fail' }]);
   // Closed by a `--status` call; nobody acted on it yet.
   closeRoundIfEnded({ stateDir, id });
@@ -289,6 +303,7 @@ function counter() {
 // The documented flow: `--status` closed a failed round, and the person is fixing the code.
 test('N1: a reviewed ticket whose closed round has new code waits for a person', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree);
   const checks = counter();
   const notify = counter();
@@ -339,6 +354,7 @@ test('N1: a reviewed ticket whose closed round has new code waits for a person',
 // A failed result nobody acted on must reach a coder, not be thrown away by a later file change.
 test('N3: a failed round closed by --status, then a file change, sends a coder', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree, [{ result: 'fail' }]);
   assert.equal(closeRoundIfEnded({ stateDir, id }), true);
   fs.writeFileSync(path.join(worktree, 'app.log'), 'request\n');
@@ -354,9 +370,10 @@ test('N3: a failed round closed by --status, then a file change, sends a coder',
   }
 });
 
-// A reviewer reads commits only, so a pass on uncommitted files must not pay for one.
-test('a pass on uncommitted changes starts no reviewer, over 7 ticks', async () => {
+// A push sends commits only, so a pass on uncommitted files is not ready.
+test('a pass on uncommitted changes is not ready, and starts nothing over 7 ticks', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   fs.writeFileSync(path.join(worktree, 'route.ts'), 'export {}\n');
   // Stands in for the QA tester's own trusted pass.
   endedRound(stateDir, id, worktree, [{ result: 'pass', token: 'tok', callerOrigin: 'inside' }]);
@@ -368,37 +385,33 @@ test('a pass on uncommitted changes starts no reviewer, over 7 ticks', async () 
       [],
     );
     assert.match(ticks[0]!.reason!, /passed on uncommitted changes \(\?\? route\.ts\)/);
-    assert.equal(backgroundStatus({ stateDir, id, role: 'reviewer' }).state, 'not-started');
+    assert.ok(ticks.every((r) => r.action !== 'ready'));
   } finally {
     stopAll(stateDir, id);
   }
 });
 
-// No mark on the stage log: `--status` closed the round, and a person skipped the failed AC.
-// The reviewer log on disk is from before the round, so it must not send a coder.
-test('N2: no reviewer since the round, every AC skipped: a reviewer starts, not a coder', async () => {
+// `--status` closed a failed round, and a person skipped the failed AC: nothing is left to fix.
+test('N2: a failed round, then every AC skipped: ready, not a coder', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
-  recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
-  fakeFinishedRun(stateDir, id, 'reviewer', 'VERDICT: blocking — about older code\n');
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree, [{ result: 'fail' }]);
   assert.equal(closeRoundIfEnded({ stateDir, id }), true);
   addCriterionSkip(stateDir, id, { ac: 'AC-1', reason: 'not this ticket' });
   const config = baseConfig({ coder: IDLE, verifier: IDLE, reviewer: IDLE });
   try {
     const result = await vima({ stateDir, id, repoRoot, config });
-    assert.equal(result.action, 'spawned-reviewer');
+    assert.equal(result.action, 'ready');
     assert.equal(backgroundStatus({ stateDir, id, role: 'coder' }).state, 'finished');
   } finally {
     stopAll(stateDir, id);
   }
 });
 
-// A review was tried after the round and started no reviewer. Trying again every tick would
-// rerun the checks and write a review entry each time.
-test('N2/N4: one review try that started no reviewer is not retried every tick', async () => {
-  const { repoRoot, stateDir, id, worktree } = await codedTicket();
-  endedRound(stateDir, id, worktree, [{ result: 'pass', token: 'tok', callerOrigin: 'inside' }]);
-  assert.equal(closeRoundIfEnded({ stateDir, id }), true);
+// A review entry whose reviewer never started. Trying again every tick would rerun the checks
+// and write a review entry each time.
+test('N2/N4: a review that started no reviewer is not retried every tick', async () => {
+  const { repoRoot, stateDir, id } = await codedTicket();
   // What a reviewer start that failed after its entry leaves behind.
   recordStage(stateDir, id, STAGES.REVIEW, RUN_OUTCOMES.OK);
   const config = baseConfig({ coder: IDLE, verifier: IDLE, reviewer: IDLE });
@@ -410,7 +423,7 @@ test('N2/N4: one review try that started no reviewer is not retried every tick',
       ticks.filter((r) => r.action.startsWith('spawned')),
       [],
     );
-    for (const r of ticks) assert.match(r.reason!, /no reviewer has started since this QA round/);
+    for (const r of ticks) assert.match(r.reason!, /needs you/);
     assert.equal(entries(), before);
   } finally {
     stopAll(stateDir, id);
@@ -425,7 +438,8 @@ function spawnedToken(stateDir: string, id: string): string {
 
 // I4: a file glafka's own checks leave behind is not the coder's change.
 test('a file the checks leave behind does not turn a trusted pass into a dirty pass', async () => {
-  const { repoRoot, stateDir, id } = await codedTicket();
+  const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   const agents = { coder: IDLE, verifier: IDLE, reviewer: IDLE };
   const config = baseConfig(agents, { checksCmd: 'touch tsconfig.tsbuildinfo' });
   try {
@@ -437,7 +451,7 @@ test('a file the checks leave behind does not turn a trusted pass into a dirty p
     const pass = { ac: 'AC-1', result: 'pass' as const, evidence: 'curl → 200' };
     const token = spawnedToken(stateDir, id);
     appendVerifyResult(stateDir, id, { ...pass, token, callerOrigin: 'inside' });
-    assert.equal((await vima({ stateDir, id, repoRoot, config })).action, 'spawned-reviewer');
+    assert.equal((await vima({ stateDir, id, repoRoot, config })).action, 'ready');
     assert.equal(verificationGap(readTicket(stateDir, id)), null);
   } finally {
     stopAll(stateDir, id);
@@ -447,6 +461,7 @@ test('a file the checks leave behind does not turn a trusted pass into a dirty p
 test('a file earlier checks left behind stays out of the next round too', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
   const checksCmd = 'touch tsconfig.tsbuildinfo';
+  cleanReview(stateDir, id, worktree);
   try {
     const first = await ergonReview({ stateDir, id, repoRoot, checksCmd });
     dispatchVerifier({ stateDir, ticket: first.ticket, verify: first.verify!, agentCmd: IDLE });
@@ -458,6 +473,8 @@ test('a file earlier checks left behind stays out of the next round too', async 
     execFileSync('git', ['add', 'fix.txt'], { cwd: worktree });
     execFileSync('git', ['commit', '-q', '-m', 'fix'], { cwd: worktree });
     recordStage(stateDir, id, STAGES.ERGON);
+    // The fix gets its own clean review before the next QA round.
+    cleanReview(stateDir, id, worktree);
     const second = await ergonReview({ stateDir, id, repoRoot, checksCmd });
     assert.deepEqual(second.verify!.checkMade, ['?? tsconfig.tsbuildinfo']);
   } finally {
@@ -468,6 +485,7 @@ test('a file earlier checks left behind stays out of the next round too', async 
 // I3: no verifier agent. A person is told once, and the checks do not run again every tick.
 test('AC but no verifier agent: one notification and one checks run over 6 ticks', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   // An app log: the worktree is dirty, so the checks cache never answers for them.
   fs.writeFileSync(path.join(worktree, 'app.log'), 'x\n');
   const checks = counter();
@@ -499,6 +517,7 @@ test('AC but no verifier agent: one notification and one checks run over 6 ticks
 // M5: an AC fail on the last allowed round sends no coder. No QA round could check its work.
 test('an AC fail on the last allowed round starts no coder', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   endedRound(stateDir, id, worktree, [{ result: 'fail' }]);
   const config = baseConfig(
     { coder: IDLE, verifier: IDLE, reviewer: IDLE },
@@ -518,7 +537,8 @@ test('an AC fail on the last allowed round starts no coder', async () => {
 
 // M4: each QA tester run is in the audit once, under its own stage, and its leftovers are reaped.
 test('every verifier run is recorded once, under the verify stage', async () => {
-  const { repoRoot, stateDir, id } = await codedTicket();
+  const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   const agents = { coder: IDLE, verifier: IDLE, reviewer: IDLE };
   const config = { ...baseConfig(agents), observability: { enabled: true } };
   const verifierRuns = () => readRunRecords(stateDir, id).filter((r) => r.role === 'verifier');
@@ -548,7 +568,8 @@ test('every verifier run is recorded once, under the verify stage', async () => 
 
 // I1: vima says it too, once, on the tick that starts the QA tester.
 test('vima names a strict guardrails level when it starts a QA tester', async () => {
-  const { repoRoot, stateDir, id } = await codedTicket({ guardrailsLevel: 3 });
+  const { repoRoot, stateDir, id, worktree } = await codedTicket({ guardrailsLevel: 3 });
+  cleanReview(stateDir, id, worktree);
   const config = baseConfig({ coder: IDLE, verifier: IDLE, reviewer: IDLE });
   try {
     const started = await vima({ stateDir, id, repoRoot, config });
@@ -562,6 +583,7 @@ test('vima names a strict guardrails level when it starts a QA tester', async ()
 // Round 2, item 3: the wait must not hang on a notifyCmd. Without one, the checks still run once.
 test('AC but no verifier agent and no notifyCmd: one checks run over 6 ticks', async () => {
   const { repoRoot, stateDir, id, worktree } = await codedTicket();
+  cleanReview(stateDir, id, worktree);
   fs.writeFileSync(path.join(worktree, 'app.log'), 'x\n');
   const checks = counter();
   const config = baseConfig({ coder: IDLE, reviewer: IDLE }, { checksCmd: checks.cmd });

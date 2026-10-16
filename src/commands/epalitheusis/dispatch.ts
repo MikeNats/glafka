@@ -7,7 +7,7 @@ import {
   openVerifyRound,
   closeVerifyRound,
   hashReviewToken,
-  startCleanRound,
+  clearNotified,
   VERIFY_OUTCOME,
 } from '../../ticket/ticketStore.js';
 import type { VerifyPrepared } from './prompts.js';
@@ -50,8 +50,9 @@ export function dispatchVerifier({
       checkMade: verify.checkMade,
       spawned: true,
     });
-    // The round is real now, so old findings and the "a person was told" mark go.
-    startCleanRound(stateDir, ticket.id);
+    // The round is real now, so the "a person was told" mark goes. The clean review it
+    // follows stays: it is the verdict on this same code.
+    clearNotified(stateDir, ticket.id);
     // Closes this round only: its token names it.
     const notStarted = (why: string): Error => {
       closeVerifyRound(stateDir, ticket.id, {
@@ -103,6 +104,6 @@ export function openManualRound({
       checkMade: verify.checkMade,
       spawned: false,
     });
-    startCleanRound(stateDir, ticket.id);
+    clearNotified(stateDir, ticket.id);
   });
 }

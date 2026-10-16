@@ -80,10 +80,10 @@ glafka lysis clean up
   [Per-ticket setup](#per-ticket-setup)).
 - **Real checks** — glafka runs your project's own check command itself.
   It does not trust the agent's word.
-- **QA** — if the spec lists acceptance criteria, a fresh QA agent, with no
-  shared context, tests each one on the running app, before any review.
 - **Fresh review** — a fresh reviewer agent, with no shared context, reads
   the diff. A big diff gets a second reviewer, for the structure.
+- **QA** — if the spec lists acceptance criteria, a fresh QA agent, with no
+  shared context, tests each one on the running app, after a clean review.
 - **Memory** — your project's rules and a map of your code live in
   `docs/glafka/` (git-tracked). They grow with every ticket:
   - while you plan, when you state a preference or correct the agent, it
