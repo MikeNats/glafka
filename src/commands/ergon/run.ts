@@ -22,7 +22,13 @@ import { latestById } from '../epalitheusis/outcome.js';
 import { readDoc } from '../../memory/docsStore.js';
 import { readDecisions } from '../../ticket/decisions.js';
 import { loadPromptContextFor } from '../../memory/context.js';
-import { spawnBackground, backgroundStatus, RUNNING_STATES } from '../../ticket/background.js';
+import {
+  spawnBackground,
+  backgroundStatus,
+  RUNNING_STATES,
+  RunNotStartedError,
+} from '../../ticket/background.js';
+import { nodeProblem } from '../../util/nodeVersion.js';
 import { assertNoLiveVerifier } from '../../ticket/liveVerifier.js';
 import { assertUnchanged, resolvePolicy } from '../../../installKit/guardrails/index.js';
 import { pathsNamedIn } from '../../memory/ethos.js';
@@ -268,6 +274,9 @@ export async function ergonBackground({
   // The check above and the spawn below used to be two separate moments, with nothing stopping a second `vima` tick from reading "not-started"
   const { dir: runDir, lockPath } = runFiles(stateDir, id, ROLES.CODER);
   fs.mkdirSync(runDir, { recursive: true });
+  // Refused, not started: a coder on a Node too old for the project only goes in circles.
+  const tooOld = nodeProblem(repoRoot);
+  if (tooOld) throw new RunNotStartedError(tooOld);
 
   // Started BEFORE the lock, never inside it. Waiting on a slow app can outlast
   // the lease, and a lock taken over reopens the very race it closes.
