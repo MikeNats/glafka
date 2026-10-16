@@ -32,7 +32,11 @@ function installedProject(): string {
   git(repoRoot, 'commit', '-q', '-m', 'init');
 
   // --all would probe a reviewer command for every platform, which costs real LLM calls.
-  execFileSync('node', [BUILT_CLI, 'install', 'gemini'], { cwd: repoRoot, stdio: 'ignore' });
+  // No code graph: a test must not download it into the real home folder.
+  execFileSync('node', [BUILT_CLI, 'install', 'gemini', '--no-code-graph'], {
+    cwd: repoRoot,
+    stdio: 'ignore',
+  });
   return repoRoot;
 }
 
