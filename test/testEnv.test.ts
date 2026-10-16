@@ -18,7 +18,7 @@ test('the test runners drop GLAFKA_AGENT_CMD from the env they pass on', () => {
     cwd: ROOT,
     encoding: 'utf8',
   });
-  assert.deepEqual(JSON.parse(out), { PATH: '/bin' });
+  assert.deepEqual(JSON.parse(out), { PATH: '/bin', GLAFKA_CODE_GRAPH: 'off' });
   const runners = [
     'scripts/run-all-tests.mjs',
     'scripts/select-fast-tests.mjs',

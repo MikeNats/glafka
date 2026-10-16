@@ -1,7 +1,7 @@
 import { readArchitectureIndex, readProorismos } from './docsStore.js';
 import { readEthosDocs } from './ethos.js';
 import { loadCategories } from './categories.js';
-import { cbmAvailable, cbmQuery, CbmError } from './cbm.js';
+import { cbmAvailable, cbmQuery, cbmProject, CbmError } from './cbm.js';
 import type { CbmOpts } from './cbm.js';
 import { architectureFreshness } from './context.js';
 import type { PromptContext } from '../types/promptContext.js';
@@ -105,6 +105,8 @@ export function loadPromptContextFor({
   return {
     architectureIndex: arch,
     architectureFreshness: fromCbm ? null : architectureFreshness(repoRoot),
+    // The same checkout the graph just indexed, so its live tools answer about this code.
+    codeGraph: fromCbm ? cbmProject(root) : null,
     ethosContent: readEthosDocs(repoRoot, paths),
     proorismos: readProorismos(repoRoot),
     categories: loadCategories(repoRoot),

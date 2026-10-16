@@ -1,4 +1,5 @@
 import { isClaudePrint } from '../audit/usageFlags.js';
+import { cbmCommand } from '../memory/cbm.js';
 import { loadLevel } from '../../installKit/guardrails/index.js';
 import { ROLES } from '../types/ticket.js';
 
@@ -23,6 +24,22 @@ function blockList(): string {
     .join(',');
 }
 
+// The code graph as a live tool, for the roles whose prompt names its project. The "scout" set:
+// 8 tools for finding and reading code, about 4k tokens of docs on every turn.
+const GRAPH_ROLES = new Set<string>([ROLES.CODER, ROLES.REPORTER]);
+const GRAPH_SERVER = 'code-graph';
+
+function graphConfig(role: string): string | null {
+  if (!GRAPH_ROLES.has(role) && !role.startsWith(ROLES.REVIEWER)) return null;
+  const bin = cbmCommand();
+  if (!bin) return null;
+  const config = {
+    mcpServers: { [GRAPH_SERVER]: { command: bin, args: ['--tool-profile=scout'] } },
+  };
+  // Quoted for sh -c: a single quote inside becomes '\''.
+  return `'${JSON.stringify(config).replace(/'/g, `'\\''`)}'`;
+}
+
 function has(agentCmd: string, ...flags: string[]): boolean {
   return flags.some((flag) => new RegExp(`(^|\\s)${flag}(=|\\s|$)`).test(agentCmd));
 }
@@ -35,7 +52,10 @@ export function withLeanStart(agentCmd: string, role: string): string {
   const flags: string[] = [];
   // Project settings stay: the guardrails hook and the project's CLAUDE.md load from there.
   if (!has(agentCmd, '--setting-sources')) flags.push('--setting-sources project,local');
+  // The only MCP server is the code graph, when it is installed. A config set by hand wins.
+  const graph = has(agentCmd, '--mcp-config') ? null : graphConfig(role);
   if (!has(agentCmd, '--strict-mcp-config', '--mcp-config')) flags.push('--strict-mcp-config');
+  if (graph) flags.push(`--mcp-config ${graph}`, `--allowedTools mcp__${GRAPH_SERVER}`);
   if (!has(agentCmd, '--disable-slash-commands')) flags.push('--disable-slash-commands');
   if (tools && !has(agentCmd, '--tools')) flags.push(`--tools ${tools}`);
   // A list someone wrote by hand is their choice. Lists only add up, so the block list always goes on.
