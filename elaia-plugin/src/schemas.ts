@@ -52,6 +52,9 @@ export const GlafkaTicketSchema = z.object({
   // Criteria a person chose not to check. An older glafka does not print it.
   criteriaSkips: z.array(z.object({ id: z.string() })).optional(),
   qa: QaSchema.nullable(),
+  // Why the criteria stop a push now (glafka's own check); null when they do not. An older
+  // glafka does not print it.
+  qaGap: z.string().nullable().optional(),
   summary: z.object({ rank: z.number(), text: z.string() }),
   // When glafka made the ticket. An older glafka does not print it.
   created: z.string().nullable().optional(),

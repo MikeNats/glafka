@@ -10,7 +10,8 @@ glafka  ◄── glafka CLI ──  this plugin  ◄── MCP ──  Elaia
 - It is an **MCP server** (stdio). Each of Elaia's plugin tools (`describe`, `tickets`, `next`,
   `close`, …) is one MCP tool here. It answers by running the glafka CLI.
 - It turns glafka's own JSON into Elaia's ticket shape. A ticket is `ready` only when the
-  review is clean **and** QA passed on the current code.
+  review is clean **and** glafka's own push check (`qaGap` in `poreia --json`) says the QA pass
+  still covers the current code.
 
 ## Install
 
