@@ -2,6 +2,7 @@ import { readTicket, listTickets } from '../../ticket/ticketStore.js';
 import { parseCriteria } from '../../ticket/criteria.js';
 import { poreia } from './poreia.js';
 import { summaryFor } from './utils.js';
+import { verificationGap } from '../epalitheusis/verificationGap.js';
 import type { PoreiaView } from './utils.js';
 import type { Ticket, CriterionSkip, VerifyResult, VerifyOutcome } from '../../types/ticket.js';
 
@@ -20,7 +21,20 @@ export interface PoreiaJson extends PoreiaView {
   criteriaSkips: CriterionSkip[];
   // The current QA round. Null when no round was ever opened.
   qa: { outcome: VerifyOutcome | null; openedAt: string | null; results: VerifyResult[] } | null;
+  // Why the acceptance criteria stop a push now, in epistle's own words; null when they do not.
+  // A pass stops counting once the code changes after it, uncommitted edits too.
+  qaGap: string | null;
   summary: { rank: number; text: string };
+}
+
+// The same check epistle makes before a push. A worktree removed by hand cannot be read:
+// then the pass does not count, and the reason says why.
+function qaGapOf(ticket: Ticket): string | null {
+  try {
+    return verificationGap(ticket);
+  } catch (err) {
+    return `the code could not be compared with the QA pass: ${(err as Error).message}`;
+  }
 }
 
 // Copied field by field, so nothing inside (like the QA token hash) leaks out.
@@ -57,6 +71,7 @@ export function toPoreiaJson(view: PoreiaView, ticket: Ticket): PoreiaJson {
           })),
         }
       : null,
+    qaGap: qaGapOf(ticket),
     summary: summaryFor(view),
   };
 }

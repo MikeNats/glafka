@@ -126,6 +126,7 @@ const POREIA_JSON_KEYS = [
   'criteria',
   'criteriaSkips',
   'qa',
+  'qaGap',
   'summary',
 ];
 
@@ -168,6 +169,7 @@ test('poreia --json carries the ticket facts, the criteria and the summary', asy
   ]);
   assert.deepEqual(one!.criteriaSkips, []);
   assert.equal(one!.qa, null);
+  assert.match(one!.qaGap!, /AC-1, AC-2 never verified/);
   assert.equal(one!.summary.rank, 2);
   assert.match(one!.summary.text, new RegExp(ticket.id));
   assert.deepEqual(
