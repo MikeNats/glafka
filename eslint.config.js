@@ -18,7 +18,7 @@ const globals = {
 
 export default [
   {
-    ignores: ['node_modules/**', '.worktrees/**', '.glafka-scratch/**', 'dist/**'],
+    ignores: ['node_modules/**', '.worktrees/**', '.glafka-scratch/**', '**/dist/**'],
   },
   {
     files: ['**/*.js'],

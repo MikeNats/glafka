@@ -1,0 +1,30 @@
+{
+  "name": "glafka-elaia-plugin",
+  "version": "1.0.0",
+  "description": "Lets Elaia drive glafka: an MCP server that answers Elaia's plugin tools by running the glafka CLI.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "glafka-elaia": "dist/plugin.cjs"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --project unit",
+    "test:real": "vitest run --project real"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.4"
+  }
+}
