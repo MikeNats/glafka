@@ -34,6 +34,9 @@ describe('every call checks its names first', () => {
     await expect(async () => run.create('/p', { idea: ' ' })).rejects.toThrow(
       '"idea" must be some text.',
     );
+    await expect(async () => run.create('/p', { idea: '--all' })).rejects.toThrow(
+      '"idea" must not start with "-".',
+    );
   });
 });
 

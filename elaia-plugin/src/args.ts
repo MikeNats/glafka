@@ -19,10 +19,12 @@ export function namesArg(args: Args, name: string): string[] {
   return value.map((v) => named(v, name));
 }
 
+// Text goes on glafka's command line too: a leading - would read as a flag.
 export function textArg(args: Args, name: string): string {
   const value = args[name];
-  if (typeof value === 'string' && value.trim()) return value;
-  throw new Error(`"${name}" must be some text.`);
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`"${name}" must be some text.`);
+  if (value.trim().startsWith('-')) throw new Error(`"${name}" must not start with "-".`);
+  return value;
 }
 
 // A ticket in one of the contract's shapes, with a plain name for its id.
