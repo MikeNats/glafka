@@ -43,4 +43,12 @@ describe('the plugin over MCP', () => {
     fake.answer('poreia', 'not json', 1);
     await expect(call('tickets', project)).rejects.toThrow(/glafka poreia/);
   });
+
+  it('refuses an id that is not a plain name, as an error result, before glafka runs', async () => {
+    const { fake, call } = await plugin();
+    await expect(call('close', '/p', { id: '--sweep' })).rejects.toThrow(
+      '"id" must be a plain name: letters, digits and . _ - only.',
+    );
+    expect(fake.calls()).toEqual([]);
+  });
 });

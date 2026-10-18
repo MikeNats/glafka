@@ -1,7 +1,7 @@
 import { z } from 'zod';
 // A ticket id goes into paths and commands: letters, digits and . _ - only, no "..".
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-const isSafeName = (name: string) =>
+export const isSafeName = (name: string) =>
   name.length <= 200 && SAFE_NAME.test(name) && !name.includes('..');
 
 // Where a ticket is, in plain software words. Every workflow tool's plugin maps to these.
