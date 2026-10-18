@@ -1,4 +1,5 @@
-import { readTicket, listTickets } from '../../ticket/ticketStore.js';
+import { existsSync } from 'node:fs';
+import { readTicket, listTickets, isClosed } from '../../ticket/ticketStore.js';
 import { parseCriteria } from '../../ticket/criteria.js';
 import { poreia } from './poreia.js';
 import { summaryFor } from './utils.js';
@@ -27,9 +28,12 @@ export interface PoreiaJson extends PoreiaView {
   summary: { rank: number; text: string };
 }
 
-// The same check epistle makes before a push. A worktree removed by hand cannot be read:
-// then the pass does not count, and the reason says why.
+// The same check epistle makes before a push. A closed or cancelled ticket pushes nothing.
+// A worktree removed by hand cannot be read: then the pass does not count, and the reason says why.
 function qaGapOf(ticket: Ticket): string | null {
+  if (isClosed(ticket)) return null;
+  if (ticket.worktree && !existsSync(ticket.worktree))
+    return `the worktree ${ticket.worktree} is missing, so its code cannot be checked`;
   try {
     return verificationGap(ticket);
   } catch (err) {

@@ -83,5 +83,5 @@ test('poreia --json qaGap: a worktree removed by hand is a reason, not a crash',
   const { worktree, gapOf } = await passedTicket();
   fs.rmSync(worktree, { recursive: true, force: true });
 
-  assert.match(gapOf()!, /could not be compared with the QA pass/);
+  assert.match(gapOf()!, /the worktree .* is missing, so its code cannot be checked/);
 });
