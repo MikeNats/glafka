@@ -14,6 +14,9 @@ if (existsSync(writes))
     writeFileSync(path.join(process.cwd(), file), text);
   }
 
+const stderr = path.join(dir, `${command}.stderr`);
+if (existsSync(stderr)) process.stderr.write(readFileSync(stderr, 'utf8'));
+
 const out = path.join(dir, `${command}.json`);
 const code = path.join(dir, `${command}.code`);
 if (existsSync(out)) process.stdout.write(readFileSync(out, 'utf8'));
