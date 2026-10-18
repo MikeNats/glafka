@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { runGlafka, type RunResult } from './run';
-import { setupFiles } from './setupFiles';
 
 // A setup step glafka does itself; `key` is the setup item it fixes.
 interface SetupRun {
@@ -92,12 +91,3 @@ export async function changeFinding(bin: string, project: string, key: string): 
   await runGlafka(bin, ['odysse', '--workspace-keep', 'none'], project, LIST_TIMEOUT);
   return 'I turned down the check command glafka found. Ask me what this project runs for lint, typecheck and tests. Then set `checksCmd` in .glafka.json.';
 }
-
-// The setup steps for a workflow, bound to the glafka command.
-export const glafkaSetupSteps = (bin: string) => ({
-  autoSetup: (project: string, missing: string[]) => autoSetup(bin, project, missing),
-  setupFindings: (project: string) => setupFindings(bin, project),
-  keepFinding: (project: string, key: string) => keepFinding(bin, project, key),
-  changeFinding: (project: string, key: string) => changeFinding(bin, project, key),
-  setupFiles,
-});

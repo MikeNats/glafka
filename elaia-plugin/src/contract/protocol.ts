@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // A plugin is an MCP server (stdio). Each call below is one of its tools: Elaia calls it with
 // { project, args } and reads { result } from its structured content.
-export const CONTRACT = 2;
+export const CONTRACT = 3;
 
 export const CALLS = [
   'describe',
@@ -20,15 +20,8 @@ export const CALLS = [
   'base-branch',
   'agent-command',
   'cannot-run-alone',
-  'setup-status',
-  'install',
-  'setup-steps',
-  'run-setup-step',
-  'setup-findings',
-  'keep-finding',
-  'change-finding',
-  'setup-files',
-  'setup-prompt',
+  'setup-next',
+  'setup-answer',
   'plan-prompt',
   'ticket-rules',
   'push-prompt',

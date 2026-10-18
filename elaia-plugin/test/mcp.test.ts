@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { CALLS } from '../src/contract';
 import { connect } from './support/connect';
 import { FAKE_GLAFKA, fakeGlafkaDir } from './support/fakeGlafka';
 import { makeGlafkaTicket } from './support/ticket';
@@ -23,7 +24,7 @@ describe('the plugin over MCP', () => {
     const { client, call } = await plugin();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toContain('tickets');
-    expect(tools).toHaveLength(28);
+    expect(tools).toHaveLength(CALLS.length);
     expect(await call('describe', '')).toMatchObject({ id: 'glafka', name: 'glafka' });
   });
 

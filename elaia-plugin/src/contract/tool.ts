@@ -20,26 +20,33 @@ export const TicketPlaceSchema = z.object({
 });
 export type TicketPlace = z.infer<typeof TicketPlaceSchema>;
 
-// One line of the setup card.
-export const SetupItemSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  done: z.boolean(),
-  optional: z.boolean(),
-});
-export type SetupItem = z.infer<typeof SetupItemSchema>;
+// Setup is led by the tool. An id may not hold ':' (a button's value is "<step>:<choice>").
+const SetupId = z.string().regex(/^[\w.-]+$/, 'letters, digits, _ . - only');
 
-// Something setup found for you to keep or change, shown as one card. `keep` labels the button.
-export const SetupFindingSchema = z.object({
-  key: z.string(),
-  title: z.string(),
-  items: z.array(z.string()),
-  keep: z.string(),
-});
-export type SetupFinding = z.infer<typeof SetupFindingSchema>;
+// A button on a setup card: `id` goes back to the tool, `label` is shown.
+export const SetupChoiceSchema = z.object({ id: SetupId, label: z.string().min(1) });
 
-// A setup step the tool does with no agent. `label` is said before, `done` after.
-export const SetupStepSchema = z.object({ key: z.string(), label: z.string(), done: z.string() });
+// What setup does next. ask: one card, its text in Markdown. agent: the main chat runs `prompt`,
+// and the step counts as answered when that turn ends. done: set up. stop: nothing more now.
+export const SetupStepSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('ask'),
+    id: SetupId,
+    text: z.string().min(1),
+    choices: z.array(SetupChoiceSchema).min(1),
+  }),
+  z.object({ kind: z.literal('agent'), id: SetupId, prompt: z.string().min(1) }),
+  z.object({ kind: z.literal('done') }),
+  z.object({ kind: z.literal('stop') }),
+]);
+export type SetupStep = z.infer<typeof SetupStepSchema>;
+
+// A setup call's answer: lines to show first ("Installed."), then the next step.
+export const SetupReplySchema = z.object({
+  said: z.array(z.string()).default([]),
+  step: SetupStepSchema,
+});
+export type SetupReply = z.infer<typeof SetupReplySchema>;
 
 export const CommandResultSchema = z.object({
   code: z.number(),

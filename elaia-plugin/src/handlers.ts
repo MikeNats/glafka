@@ -2,33 +2,24 @@ import { existsSync } from 'node:fs';
 import { isSafeName, readTrustItems, type CallName } from './contract';
 import { TicketBriefSchema, TicketPlaceSchema } from './contract';
 import { glafkaClient } from './client';
-import { nameArg, namesArg, textArg, ticketArg, type Args } from './args';
+import { nameArg, namesArg, setupArg, textArg, ticketArg, type Args } from './args';
 import { agentCommandFor, baseRefFor } from './config';
 import { endedRuns, glafkaDir, lastResult } from './files';
 import { GLAFKA_INFO } from './info';
 import { runOf } from './next';
 import { runGlafka } from './run';
 import { glafkaTrust } from './runnables';
-import {
-  hasCoder,
-  hasVerifier,
-  SETUP_KEYS,
-  setupPrompt,
-  setupStatus,
-  type SetupKey,
-} from './setup';
-import { glafkaSetupSteps } from './setupSteps';
+import { hasCoder, hasVerifier } from './setup';
+import { setupAnswer } from './setupAnswer';
+import { setupNext } from './setupFlow';
 import { glafkaTicketGenesisPrompt, glafkaTicketRules, planFileOf } from './text';
 import { toTicket } from './toTicket';
 
 type Handler = (project: string, args: Args) => unknown;
 
-const isSetupKey = (key: string): key is SetupKey =>
-  (SETUP_KEYS as readonly string[]).includes(key);
-const missingOf = (args: Args) => namesArg(args, 'missing');
 const NO_CODER =
   'No coder agent is set (agents.coder in .glafka.json), so tickets cannot run on their own. ' +
-  'Press Set up in this chat to add one.';
+  'Set it there, or ask the main chat to set it up.';
 // `glafka plan` can set up containers, a database and the dev server.
 const PLAN_TIMEOUT = 900_000;
 // `ergon --background` first wakes the ticket's services. Elaia waits long for it.
@@ -45,7 +36,6 @@ function lastWords(log: string): string | null {
 // Every call the glafka plugin answers, run with the glafka command `bin`.
 export function handlers(bin: string): Record<CallName, Handler> {
   const client = glafkaClient(bin);
-  const steps = glafkaSetupSteps(bin);
   const id = (args: Args) => nameArg(args, 'id');
   return {
     describe: () => GLAFKA_INFO,
@@ -80,19 +70,9 @@ export function handlers(bin: string): Record<CallName, Handler> {
     'base-branch': (p) => baseRefFor(p),
     'agent-command': (p) => agentCommandFor(p, ''),
     'cannot-run-alone': (p) => (hasCoder(p) ? null : NO_CODER),
-    'setup-status': (p) => setupStatus(p),
-    install: (p, a) => client.install(p, nameArg(a, 'platform')),
-    'setup-steps': (p, a) =>
-      steps.autoSetup(p, missingOf(a)).map(({ key, label, done }) => ({ key, label, done })),
-    'run-setup-step': (p, a) => {
-      const step = steps.autoSetup(p, [nameArg(a, 'key')])[0];
-      return step ? step.run() : { code: 1, stdout: '', stderr: 'No such setup step.' };
-    },
-    'setup-findings': (p) => steps.setupFindings(p),
-    'keep-finding': (p, a) => steps.keepFinding(p, nameArg(a, 'key')),
-    'change-finding': (p, a) => steps.changeFinding(p, nameArg(a, 'key')),
-    'setup-files': (p) => steps.setupFiles(p),
-    'setup-prompt': (_p, a) => setupPrompt(missingOf(a).filter(isSetupKey)),
+    'setup-next': (p, a) => setupNext(bin, p, setupArg(a)),
+    'setup-answer': (p, a) =>
+      setupAnswer(bin, p, { ...setupArg(a), id: nameArg(a, 'id'), choice: nameArg(a, 'choice') }),
     'plan-prompt': (_p, a) => glafkaTicketGenesisPrompt(ticketArg(a, 'ticket', TicketBriefSchema)),
     'ticket-rules': (_p, a) => glafkaTicketRules(ticketArg(a, 'place', TicketPlaceSchema)),
     'push-prompt': (_p, a) => `/glafka:epistle ${id(a)}`,

@@ -35,3 +35,19 @@ export function ticketArg<T extends { id: string }>(args: Args, name: string, sh
   named(parsed.data.id, `${name}.id`);
   return parsed.data;
 }
+
+// What Elaia sends with a setup call: your answers by step id, go, and the agent platform.
+export function setupArg(args: Args) {
+  const answers = args.answers ?? {};
+  const shaped =
+    typeof answers === 'object' &&
+    answers !== null &&
+    !Array.isArray(answers) &&
+    Object.values(answers).every((v) => typeof v === 'string');
+  if (!shaped) throw new Error('"answers" is not in the shape Elaia sends.');
+  return {
+    answers: answers as Record<string, string>,
+    go: args.go === true,
+    platform: nameArg(args, 'platform'),
+  };
+}

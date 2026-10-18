@@ -66,7 +66,6 @@ export function glafkaClient(bin: string) {
       (await call(cwd, ['create', idea, '--json'], CreateJsonSchema)).id,
     tokens: async (cwd: string): Promise<TokenRow[]> =>
       (await call(cwd, ['audit', '--json'], AuditSummarySchema)).tickets,
-    install: (cwd: string, platform: string) => runGlafka(bin, ['install', platform], cwd, 600_000),
   };
 }
 

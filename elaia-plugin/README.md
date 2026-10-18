@@ -12,6 +12,12 @@ glafka  ◄── glafka CLI ──  this plugin  ◄── MCP ──  Elaia
 - It turns glafka's own JSON into Elaia's ticket shape. A ticket is `ready` only when the
   review is clean **and** glafka's own push check (`qaGap` in `poreia --json`) says the QA pass
   still covers the current code.
+- It leads setup (`setup-next`, `setup-answer`), one card at a time:
+
+```
+Set up? ──► install glafka ──► persona ──► check command ──► code map
+        ──► what is still missing (the main chat agent) ──► guardrails ──► commit "Set up glafka"
+```
 
 ## Install
 

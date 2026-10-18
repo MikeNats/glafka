@@ -17,6 +17,7 @@ export {
   type SetupItem,
   type SetupKey,
 } from './setup';
-export { glafkaSetupSteps } from './setupSteps';
+export { setupNext, type SetupAsk } from './setupFlow';
+export { setupAnswer } from './setupAnswer';
 export { glafkaTrust } from './runnables';
 export { runOf } from './next';
