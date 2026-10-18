@@ -2,31 +2,49 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
-// The parts of glafka's settings Elaia reads. Loose: glafka owns this file.
-const ConfigSchema = z.object({
-  agents: z.record(z.string(), z.string()).optional(),
-  baseRef: z.string().optional(),
-  checksCmd: z.string().optional(),
-});
-const IsolationSchema = z.object({
-  workspace: z.object({ checksCmd: z.string().optional() }).optional(),
-});
+// The parts of glafka's settings Elaia reads. glafka owns these files and allows null for
+// baseRef, checksCmd and agents, so each field is read on its own: one cannot drop the rest.
+export interface GlafkaConfig {
+  agents?: Record<string, string>;
+  baseRef?: string;
+  checksCmd?: string;
+}
 
-function readJson<T>(file: string, schema: z.ZodType<T>): T | null {
+function readJson(file: string): unknown {
   if (!existsSync(file)) return null;
   try {
-    const parsed = schema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
-    return parsed.success ? parsed.data : null;
+    return JSON.parse(readFileSync(file, 'utf8'));
   } catch {
     return null;
   }
 }
 
-export const readConfig = (project: string) =>
-  readJson(path.join(project, '.glafka.json'), ConfigSchema) ?? {};
+// One field of a JSON object, or undefined when it is missing, null or not this shape.
+function fieldOf<T>(json: unknown, key: string, schema: z.ZodType<T>): T | undefined {
+  if (typeof json !== 'object' || json === null) return undefined;
+  const parsed = schema.safeParse((json as Record<string, unknown>)[key]);
+  return parsed.success ? parsed.data : undefined;
+}
 
-export const readIsolation = (project: string) =>
-  readJson(path.join(project, 'docs', 'glafka', 'architecture', 'isolation.json'), IsolationSchema);
+export function readConfig(project: string): GlafkaConfig {
+  const json = readJson(path.join(project, '.glafka.json'));
+  return {
+    agents: fieldOf(json, 'agents', z.record(z.string(), z.string())),
+    baseRef: fieldOf(json, 'baseRef', z.string()),
+    checksCmd: fieldOf(json, 'checksCmd', z.string()),
+  };
+}
+
+export function readIsolation(project: string) {
+  const file = path.join(project, 'docs', 'glafka', 'architecture', 'isolation.json');
+  const workspace = fieldOf(readJson(file), 'workspace', z.record(z.string(), z.unknown()));
+  return {
+    workspace: {
+      baseRef: fieldOf(workspace, 'baseRef', z.string()),
+      checksCmd: fieldOf(workspace, 'checksCmd', z.string()),
+    },
+  };
+}
 
 // The shell command for non-Claude chat: your setting first, then glafka's own agents.
 export function agentCommandFor(project: string, setting: string): string | null {
