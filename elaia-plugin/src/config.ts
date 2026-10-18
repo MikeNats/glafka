@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+// glafka's own git lookup. Only node's own modules come with it, so it is safe to bundle.
+import { detectBaseRef } from '../../src/util/git.js';
 
 // The parts of glafka's settings Elaia reads. glafka owns these files and allows null for
 // baseRef, checksCmd and agents, so each field is read on its own: one cannot drop the rest.
@@ -53,6 +55,13 @@ export function agentCommandFor(project: string, setting: string): string | null
   return agents.default ?? agents.reporter ?? null;
 }
 
+// glafka's own order (resolveBaseRef): your setting, the approved scan, then what git says
+// (origin/HEAD, main, master, trunk, the current branch), then main.
 export function baseRefFor(project: string): string {
-  return readConfig(project).baseRef ?? 'main';
+  return (
+    readConfig(project).baseRef ||
+    readIsolation(project).workspace.baseRef ||
+    detectBaseRef(project) ||
+    'main'
+  );
 }
