@@ -76,6 +76,14 @@ describe('toTicket: a check by hand (no QA agent)', () => {
     );
   });
 
+  it('quotes a glafka path with a space or a quote in it', () => {
+    const t = makeGlafkaTicket({ ...reviewed, qa: round(null), qaGap: 'open' });
+    const ctx = { bin: "/opt/bob's tools/glafka", hasVerifier: false };
+    expect(toTicket(t, ctx).personSteps[0]?.command).toBe(
+      `'/opt/bob'\\''s tools/glafka' ergon ${ID} --review`,
+    );
+  });
+
   it('is a QA agent at work when one is set', () => {
     const t = makeGlafkaTicket({ ...reviewed, qa: round(null, []), qaGap: 'open' });
     expect(toTicket(t, { bin: 'glafka', hasVerifier: true })).toMatchObject({

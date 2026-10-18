@@ -61,6 +61,10 @@ export function qaWaits(g: GlafkaTicket, t: QaFacts): string | null {
   return null;
 }
 
+// A word as a shell reads it: quoted when it holds a space or a shell character.
+const shellWord = (word: string) =>
+  /^[\w./:@%+=,-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
+
 const SKIP_REASON = 'could not be checked here';
 
 // What glafka lets only a person do, at a terminal: skip a check QA could not do, or check by hand.
@@ -70,7 +74,7 @@ export function personSteps(
   bin: string,
 ): Ticket['personSteps'] {
   if (!waits) return [];
-  const glafka = bin;
+  const glafka = shellWord(bin);
   // At a terminal it opens a new round, with a new token, and prints how to record each result.
   const review = `${glafka} ergon ${g.id} --review`;
   if (waits.startsWith(BY_HAND))
