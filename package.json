@@ -12,7 +12,8 @@
   "bugs": "https://github.com/MikeNats/glafka/issues",
   "type": "module",
   "bin": {
-    "glafka": "./dist/installKit/bin/glafka.js"
+    "glafka": "./dist/installKit/bin/glafka.js",
+    "glafka-elaia": "./dist/elaia-plugin/plugin.cjs"
   },
   "files": [
     "dist",
@@ -39,7 +40,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@types/node": "^26.1.2",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",
@@ -48,6 +51,6 @@
     "typescript-eslint": "^8.65.0"
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   }
 }

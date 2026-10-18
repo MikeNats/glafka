@@ -15,11 +15,8 @@ glafka  ◄── glafka CLI ──  this plugin  ◄── MCP ──  Elaia
 
 ## Install
 
-```bash
-cd elaia-plugin
-npm install        # builds dist/plugin.cjs
-npm link           # puts the `glafka-elaia` command on your PATH
-```
+It comes with glafka: installing glafka puts the `glafka-elaia` command on your `PATH` too
+(see glafka's README).
 
 Then, in Elaia, add a project. When it asks which workflow tool to use, type in its main chat:
 

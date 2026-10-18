@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -30,11 +31,25 @@ if (copied === 0) {
   throw new Error(`no level files found in ${levelsSrc} — the build would ship an unusable policy`);
 }
 
+// The Elaia plugin comes with glafka, so one install gives both commands. One file, with its
+// libraries inside: the `glafka-elaia` command.
+const plugin = path.join(ROOT, 'dist', 'elaia-plugin', 'plugin.cjs');
+await build({
+  entryPoints: [path.join(ROOT, 'elaia-plugin', 'src', 'main.ts')],
+  outfile: plugin,
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node20',
+  banner: { js: '#!/usr/bin/env node' },
+  logLevel: 'warning',
+});
+
 // npm writes its own launcher shims on Windows, and chmod is a no-op there.
 // Everywhere else the bin needs the bit set or `glafka` cannot be run.
 const cli = path.join(ROOT, 'dist', 'installKit', 'bin', 'glafka.js');
-if (process.platform !== 'win32' && fs.existsSync(cli)) {
-  fs.chmodSync(cli, 0o755);
+for (const bin of [cli, plugin]) {
+  if (process.platform !== 'win32' && fs.existsSync(bin)) fs.chmodSync(bin, 0o755);
 }
 
 console.log(`build: ${copied} level file(s) copied`);

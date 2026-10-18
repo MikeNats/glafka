@@ -27,10 +27,11 @@ Once, on your machine:
 git clone https://github.com/MikeNats/glafka.git
 cd glafka
 npm install        # gets the build tools and builds glafka
-npm install -g .   # puts the `glafka` command on your PATH
+npm install -g .   # puts the `glafka` and `glafka-elaia` commands on your PATH
 ```
 
 The global `glafka` command points to this folder. Keep the folder.
+`glafka-elaia` is the [Elaia](https://github.com/MikeNats/elaia) plugin: see `elaia-plugin/`.
 
 Then, inside each project's git repo:
 
