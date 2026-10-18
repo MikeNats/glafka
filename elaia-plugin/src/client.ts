@@ -51,10 +51,11 @@ export function glafkaClient(bin: string) {
     // glafka's own ticket JSON; handlers.ts turns it into Elaia's shape.
     tickets: async (cwd: string): Promise<GlafkaTicket[]> =>
       (await call(cwd, ['poreia', '--all', '--json'], PoreiaJsonSchema)).tickets,
-    // An id glafka does not know is no ticket: null, in glafka's own words for it.
+    // An id glafka does not know, or that is not in glafka's id form, is no ticket: null.
     ticket: async (cwd: string, id: string): Promise<GlafkaTicket | null> => {
       const result = await runGlafka(bin, ['poreia', id, '--json'], cwd);
-      if (result.code !== 0 && result.stderr.includes(`no ticket "${id}"`)) return null;
+      const unknown = [`no ticket "${id}"`, `invalid ticket id: "${id}"`];
+      if (result.code !== 0 && unknown.some((words) => result.stderr.includes(words))) return null;
       return parse('poreia', result, PoreiaJsonSchema).tickets[0] ?? null;
     },
     advance: async (cwd: string, id: string) =>

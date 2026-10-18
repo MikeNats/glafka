@@ -27,6 +27,11 @@ describe('glafka client: one ticket', { timeout: 20_000 }, () => {
     expect(await glafka.ticket(project, 'nope')).toBeNull();
   });
 
+  it('answers null for an id that cannot be a glafka id', async () => {
+    fails('invalid ticket id: "epic-x"');
+    expect(await glafka.ticket(project, 'epic-x')).toBeNull();
+  });
+
   it('still fails in plain words for any other error', async () => {
     fails('ticket.json: not valid JSON');
     await expect(glafka.ticket(project, 'x')).rejects.toThrow(/glafka poreia failed .*not valid/);

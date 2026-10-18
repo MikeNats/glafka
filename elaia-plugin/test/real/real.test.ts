@@ -3,6 +3,7 @@ import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { glafkaClient } from '../../src/client';
 import { connect } from '../support/connect';
 
 // Runs the real glafka on PATH (or GLAFKA_BIN). It must be a version with --json.
@@ -37,5 +38,16 @@ describe('the plugin against the real glafka', () => {
     const cancelled = (await call('cancel', repo, { id })) as { code: number };
     expect(cancelled.code).toBe(0);
     expect(await call('tickets', repo)).toEqual([]);
+  });
+
+  it('reads qaGap and the base branch from glafka, and null for an unknown ticket', async () => {
+    const { client, call } = await connect(BIN);
+    open.push(client);
+    const { id } = (await call('create', repo, { idea: 'add csv export' })) as { id: string };
+    // A bare ticket has no criteria: nothing stops a push on them.
+    expect(await glafkaClient(BIN).ticket(repo, id)).toHaveProperty('qaGap', null);
+    expect(await call('ticket', repo, { id: '2026-01-01-no-such-ticket' })).toBeNull();
+    expect(await call('ticket', repo, { id: 'epic-csv' })).toBeNull();
+    expect(await call('base-branch', repo)).toBe('main');
   });
 });
