@@ -42,4 +42,9 @@ describe('runOf: glafka run folders in plain roles', () => {
     expect(runOf({ ...run, role: 'verifier' }).role).toBe('qa');
     expect(runOf({ ...run, role: 'odd' }).role).toBe('odd');
   });
+
+  it('names the extra reviewers of a round review, each with its own key', () => {
+    const run = { role: 'reviewer-2', startedAt: '17', log: '/l', exitCode: null };
+    expect(runOf(run)).toMatchObject({ role: 'review', key: 'reviewer-2-17' });
+  });
 });

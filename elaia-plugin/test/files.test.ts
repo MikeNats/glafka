@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -27,6 +28,21 @@ describe('endedRuns', () => {
     const project = mkdtempSync(path.join(tmpdir(), 'elaia-runs-'));
     mkdirSync(path.dirname(runsOf(project)), { recursive: true });
     writeFileSync(runsOf(project), 'not a folder');
+    expect(endedRuns(project, 'T')).toEqual([]);
+  });
+
+  it('reports a run whose process is gone with no exit code as ended, code null', () => {
+    const project = mkdtempSync(path.join(tmpdir(), 'elaia-runs-'));
+    // A process that has already ended: killed, stopped after its time limit, or crashed.
+    const gone = spawnSync(process.execPath, ['-e', '']).pid;
+    run(project, 'reviewer-2', { log: 'x\n', pid: String(gone), 'started-at': '17' });
+    expect(endedRuns(project, 'T')).toMatchObject([{ role: 'reviewer-2', exitCode: null }]);
+  });
+
+  it('leaves out runs that still run, with or without a pid', () => {
+    const project = mkdtempSync(path.join(tmpdir(), 'elaia-runs-'));
+    run(project, 'coder', { log: 'x\n', pid: String(process.pid), 'started-at': '17' });
+    run(project, 'verifier', { log: 'x\n', 'started-at': '17' });
     expect(endedRuns(project, 'T')).toEqual([]);
   });
 });

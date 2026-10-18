@@ -27,7 +27,8 @@ export interface EndedRun {
   exitCode: number | null;
 }
 
-// Background runs that have an exit code. glafka deletes them at close, so copy them first.
+// Background runs that ended, with their exit code (null when killed or crashed). glafka
+// deletes them at close, so copy them first.
 export function endedRuns(project: string, ticketId: string): EndedRun[] {
   const runs = path.join(glafkaDir(project), 'tickets', ticketId, 'runs');
   let roles: string[];
@@ -47,15 +48,41 @@ export function endedRuns(project: string, ticketId: string): EndedRun[] {
   });
 }
 
+// glafka's own check: EPERM means alive, owned by someone else. Only ESRCH means gone.
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+// How a run ended, as glafka judges it: its exit code, or null when its process is gone with no
+// code (killed, timed out and stopped, crashed). Undefined while it still runs.
+function exitCodeOf(dir: string): number | null | undefined {
+  const codeFile = path.join(dir, 'exit-code');
+  const pidFile = path.join(dir, 'pid');
+  if (!existsSync(codeFile)) {
+    // No pid: a run started outside glafka, which ends only with an exit code.
+    if (!existsSync(pidFile) || isAlive(Number(readFileSync(pidFile, 'utf8')))) return undefined;
+    // It may have written its code just before it ended.
+    if (!existsSync(codeFile)) return null;
+  }
+  const code = Number(readFileSync(codeFile, 'utf8').trim());
+  return Number.isNaN(code) ? null : code;
+}
+
 function endedRun(dir: string, role: string): EndedRun[] {
   const log = path.join(dir, 'log');
-  if (!existsSync(path.join(dir, 'exit-code')) || !existsSync(log)) return [];
+  if (!existsSync(log)) return [];
+  const exitCode = exitCodeOf(dir);
+  if (exitCode === undefined) return [];
   const startedFile = path.join(dir, 'started-at');
   const startedAt = existsSync(startedFile)
     ? readFileSync(startedFile, 'utf8').trim()
     : String(Math.round(statSync(log).mtimeMs));
-  const code = Number(readFileSync(path.join(dir, 'exit-code'), 'utf8').trim());
-  return [{ role, startedAt, log, exitCode: Number.isNaN(code) ? null : code }];
+  return [{ role, startedAt, log, exitCode }];
 }
 
 const TAIL_BYTES = 256 * 1024;

@@ -20,9 +20,12 @@ export function toNextEvent(r: { id: string; action: string; reason?: string }):
   return { kind: 'other', text: `${r.action}${r.reason ? ` — ${r.reason}` : ''}` };
 }
 
+// Extra reviewers of one round are reviewer-2, reviewer-3, …
+const roleOf = (role: string) => ROLES[role] ?? (/^reviewer-\d+$/.test(role) ? 'review' : role);
+
 // A glafka run folder in plain roles. The key keeps glafka's role: copies made before stay found.
 export const runOf = (run: EndedRun): Omit<FinishedRun, 'lastWords'> => ({
   ...run,
-  role: ROLES[run.role] ?? run.role,
+  role: roleOf(run.role),
   key: `${run.role}-${run.startedAt}`,
 });
