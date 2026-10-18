@@ -19,11 +19,12 @@ export function namesArg(args: Args, name: string): string[] {
   return value.map((v) => named(v, name));
 }
 
-// Text goes on glafka's command line too: a leading - would read as a flag.
+// Text goes on glafka's command line too: one word like --json would read as a flag.
+// Longer text that starts with - is fine.
 export function textArg(args: Args, name: string): string {
   const value = args[name];
   if (typeof value !== 'string' || !value.trim()) throw new Error(`"${name}" must be some text.`);
-  if (value.trim().startsWith('-')) throw new Error(`"${name}" must not start with "-".`);
+  if (/^-\S*$/.test(value.trim())) throw new Error(`"${name}" must not be a lone flag.`);
   return value;
 }
 

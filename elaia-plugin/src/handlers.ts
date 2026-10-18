@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readTrustItems, type CallName } from './contract';
+import { isSafeName, readTrustItems, type CallName } from './contract';
 import { TicketBriefSchema, TicketPlaceSchema } from './contract';
 import { glafkaClient } from './client';
 import { nameArg, namesArg, textArg, ticketArg, type Args } from './args';
@@ -60,8 +60,10 @@ export function handlers(bin: string): Record<CallName, Handler> {
     },
     tokens: (p) => client.tokens(p),
     runs: (p, a) => {
-      // Runs Elaia already has: listed, but their logs are not read again.
-      const copied = new Set(namesArg(a, 'copied'));
+      // Runs Elaia already has: listed, but their logs are not read again. A key that is no
+      // plain name (a stray file like ._coder-1) is skipped, never a failure of the whole call.
+      const listed: unknown[] = Array.isArray(a.copied) ? a.copied : [];
+      const copied = new Set(listed.filter((k) => typeof k === 'string' && isSafeName(k)));
       const runsOf = (t: string) =>
         endedRuns(p, t).map((r) => {
           const run = runOf(r);

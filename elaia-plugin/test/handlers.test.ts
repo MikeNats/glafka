@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { textArg } from '../src/args';
 import { handlers } from '../src/handlers';
 import { runGlafka } from '../src/run';
 
@@ -35,8 +36,18 @@ describe('every call checks its names first', () => {
       '"idea" must be some text.',
     );
     await expect(async () => run.create('/p', { idea: '--all' })).rejects.toThrow(
-      '"idea" must not start with "-".',
+      '"idea" must not be a lone flag.',
     );
+  });
+
+  it('takes an idea that starts with - but is more than one word', () => {
+    expect(textArg({ idea: '-v flag is ignored by the CLI' }, 'idea')).toBe(
+      '-v flag is ignored by the CLI',
+    );
+  });
+
+  it('skips a copied key that is no plain name, and still answers', async () => {
+    expect(await run.runs('/p', { ids: [], copied: ['._coder-1', 'coder-1'] })).toEqual({});
   });
 });
 
